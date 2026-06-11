@@ -1,1 +1,553 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arbre faluchard — UP médecine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,500;0,600;1,500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<style>
+  :root{
+    --velvet:#17121a;        /* fond toile : velours faluche */
+    --velvet-2:#221826;
+    --parch:#f4efe6;         /* parchemin : panneaux */
+    --parch-line:#e2d9c8;
+    --ink:#241c27;
+    --ink-soft:#6b6070;
+    --rouge:#a3232f;         /* rouge médecine (filière) */
+    --rouge-bright:#cf3b40;
+    --gold:#e7c15a;
+    --teal:#19a78e;
+    /* ░░ Réglages de la case « parrains / filleul·e·s » — modifie ces 2 valeurs ░░
+       --chips-max  : hauteur max de CHAQUE liste de noms avant défilement (rangées de pastilles)
+       --focus-max  : hauteur max de toute la case avant défilement                            */
+    --chips-max:128px;
+    --focus-max:300px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:Inter,system-ui,sans-serif;color:var(--ink);background:var(--velvet)}
+  #app{display:grid;grid-template-columns:312px 1fr;height:100%}
+  /* ---- panneau latéral ---- */
+  aside{
+    background:var(--parch);border-right:1px solid var(--parch-line);
+    padding:20px 20px 16px;display:flex;flex-direction:column;gap:18px;overflow-y:auto;z-index:3
+  }
+  .brand{line-height:1.1}
+  .brand h1{font-family:Spectral,serif;font-weight:600;font-size:22px;margin:0;letter-spacing:.2px}
+  .brand .sub{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--rouge);margin-top:6px;font-weight:600}
+  .stats{display:flex;gap:14px;font-size:12px;color:var(--ink-soft)}
+  .stats b{display:block;font-size:17px;color:var(--ink);font-weight:600;font-family:Spectral,serif}
+  .field label{display:block;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:6px;font-weight:600}
+  input[type=search]{
+    width:100%;padding:9px 11px;border:1px solid var(--parch-line);border-radius:8px;
+    font:inherit;font-size:14px;background:#fff;color:var(--ink)
+  }
+  input[type=search]:focus{outline:2px solid var(--rouge);outline-offset:1px;border-color:transparent}
+  .depth{display:flex;align-items:center;gap:10px}
+  .depth input{flex:1}
+  .depth .val{font-family:Spectral,serif;font-size:15px;min-width:54px;text-align:right;color:var(--rouge)}
+  input[type=range]{accent-color:var(--rouge)}
+  .seg{display:flex;border:1px solid var(--parch-line);border-radius:8px;overflow:hidden}
+  .seg button{flex:1;border:0;background:#fff;padding:7px 4px;font:inherit;font-size:12px;cursor:pointer;color:var(--ink-soft)}
+  .seg button[aria-pressed=true]{background:var(--ink);color:var(--parch)}
+  .focusbox{background:#fff;border:1px solid var(--parch-line);border-radius:10px;padding:13px 14px;min-height:64px;max-height:var(--focus-max);overflow-y:auto}
+  .focusbox .ph{color:var(--ink-soft);font-size:13px;line-height:1.5}
+  .focusbox h2{font-family:Spectral,serif;font-size:18px;margin:0 0 8px;line-height:1.15}
+  .lineage{font-size:12.5px;line-height:1.7}
+  .lineage .row{display:flex;gap:8px;align-items:baseline}
+  .lineage .tag{min-width:74px;color:var(--ink-soft);font-size:11px;letter-spacing:.04em;text-transform:uppercase}
+  .lineage .tag.up{color:var(--rouge)}
+  .lineage .tag.down{color:var(--teal)}
+  .chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:3px;max-height:var(--chips-max);overflow-y:auto;padding-right:2px}
+  .chips::-webkit-scrollbar,.focusbox::-webkit-scrollbar{width:7px}
+  .chips::-webkit-scrollbar-thumb,.focusbox::-webkit-scrollbar-thumb{background:var(--parch-line);border-radius:7px}
+  .chips{scrollbar-width:thin;scrollbar-color:var(--parch-line) transparent}
+  .chip{background:var(--parch);border:1px solid var(--parch-line);border-radius:999px;padding:2px 9px;font-size:12px;cursor:pointer;white-space:nowrap}
+  .chip:hover{border-color:var(--rouge);color:var(--rouge)}
+  .legend{font-size:12px;color:var(--ink-soft);line-height:1.9}
+  .legend .sw{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:7px;vertical-align:-1px}
+  .btn{border:1px solid var(--parch-line);background:#fff;border-radius:8px;padding:9px;font:inherit;font-size:13px;cursor:pointer;color:var(--ink)}
+  .btn:hover{border-color:var(--rouge);color:var(--rouge)}
+  .hint{font-size:11px;color:var(--ink-soft);line-height:1.55;margin-top:auto;padding-top:8px;border-top:1px solid var(--parch-line)}
+  /* ---- toile ---- */
+  main{position:relative;overflow:hidden}
+  canvas{display:block;cursor:grab}
+  canvas.grabbing{cursor:grabbing}
+  #tip{
+    position:absolute;pointer-events:none;background:var(--velvet-2);color:var(--parch);
+    border:1px solid #3a2f44;border-radius:8px;padding:8px 11px;font-size:12.5px;line-height:1.5;
+    opacity:0;transition:opacity .12s;max-width:240px;z-index:5;box-shadow:0 6px 22px rgba(0,0,0,.45)
+  }
+  #tip b{font-family:Spectral,serif;font-weight:600;font-size:14px}
+  #tip .meta{color:#b7a7c4;font-size:11.5px;margin-top:2px}
+  .float{position:absolute;left:16px;bottom:14px;display:flex;gap:8px;z-index:4}
+  .float button{background:var(--velvet-2);color:var(--parch);border:1px solid #3a2f44;border-radius:8px;width:34px;height:34px;font-size:17px;cursor:pointer;line-height:1}
+  .float button:hover{border-color:var(--rouge-bright)}
+  /* mobile */
+  #burger{display:none}
+  @media(max-width:760px){
+    #app{grid-template-columns:1fr}
+    aside{position:fixed;inset:0 auto 0 0;width:296px;transform:translateX(-100%);transition:transform .22s;box-shadow:0 0 40px rgba(0,0,0,.4)}
+    aside.open{transform:none}
+    #burger{display:block;position:absolute;top:12px;left:12px;z-index:6;background:var(--velvet-2);color:var(--parch);border:1px solid #3a2f44;border-radius:8px;width:40px;height:40px;font-size:18px;cursor:pointer}
+  }
+  @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="panel">
+    <div class="brand">
+      <h1>Arbre faluchard</h1>
+      <div class="sub">Faculté de médecine · UP</div>
+    </div>
+    <div class="stats">
+      <div><b id="stat-n">—</b>faluchard·e·s</div>
+      <div><b id="stat-e">—</b>parrainages</div>
+      <div><b id="stat-g">—</b>générations</div>
+    </div>
 
+    <div class="field">
+      <label for="search">Chercher quelqu'un</label>
+      <input id="search" type="search" list="names" placeholder="Nom de faluche…" autocomplete="off">
+      <datalist id="names"></datalist>
+    </div>
+
+    <div class="field">
+      <label for="depth">Profondeur du focus</label>
+      <div class="depth">
+        <input id="depth" type="range" min="1" max="7" step="1" value="2">
+        <span class="val" id="depth-val">2 gén.</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Couleur des nœuds</label>
+      <div class="seg" id="colormode">
+        <button data-mode="gen" aria-pressed="true">Génération</button>
+        <button data-mode="lineage" aria-pressed="false">Lignée (focus)</button>
+      </div>
+    </div>
+
+    <div class="focusbox" id="focusbox">
+      <div class="ph">Clique sur un nœud (ou cherche un nom) pour isoler sa lignée : parrains au-dessus, filleul·e·s en dessous.</div>
+    </div>
+
+    <div class="legend" id="legend"></div>
+
+    <button class="btn" id="reset">Tout réafficher</button>
+
+    <div class="hint">Molette : zoom · glisser le fond : déplacer · glisser un nœud : le fixer. Les données sont éditables en haut du fichier <code>.html</code> (bloc <code>id="data"</code>).</div>
+  </aside>
+
+  <main>
+    <button id="burger" aria-label="Menu">☰</button>
+    <canvas id="cv"></canvas>
+    <div id="tip"></div>
+    <div class="float">
+      <button id="zin" title="Zoom +">+</button>
+      <button id="zout" title="Zoom −">−</button>
+      <button id="zfit" title="Recadrer">⊡</button>
+    </div>
+  </main>
+</div>
+
+<!--
+  ════════════════════════════════════════════════════════════════════
+  DONNÉES DE L'ARBRE  —  c'est le SEUL bloc à modifier au fil des années.
+  Format :
+    "personnes":[ {"nom":"Pimpal"}, {"nom":"Untel","gen":2}, ... ]
+    "liens":    [ {"parrain":"Pimpal","filleul":"Zob"}, ... ]
+  Pour ajouter un·e bizuth : ajoute son nom dans "personnes",
+  puis un lien {"parrain":"…","filleul":"son nom"} dans "liens".
+  (Pas de virgule après le dernier élément d'une liste.)
+  ════════════════════════════════════════════════════════════════════
+-->
+<script id="data" type="application/json">
+{"personnes":[{"nom":"+4","gen":1},{"nom":"$hit $ale","gen":1},{"nom":"2 Mitch 3","gen":1},{"nom":"24-carats"},{"nom":"9 zewo delta","gen":1},{"nom":"A Contrario"},{"nom":"A Louis Baba","gen":1},{"nom":"A poil","gen":1},{"nom":"ACAB"},{"nom":"AK-40PET","gen":1},{"nom":"AMATERAUS…","gen":2},{"nom":"AMAZONASS 3, intronisée PANDORA","gen":1},{"nom":"APHRODISIAS","gen":2},{"nom":"ARLO","gen":2},{"nom":"ARTEMISIA","gen":2},{"nom":"AZYZzz","gen":1},{"nom":"Achibraraccourcix","gen":1},{"nom":"Achille le Saltimbanque","gen":1},{"nom":"Action Man","gen":1},{"nom":"Afreudite intronisé Hermafreudite"},{"nom":"Al Capone 2.0","gen":1},{"nom":"Alcaline","gen":1},{"nom":"Alice in Lalaland","gen":1},{"nom":"Alsace","gen":1},{"nom":"Amenorrhix","gen":1},{"nom":"Amstairdam"},{"nom":"Angry Groot","gen":1},{"nom":"Anna Karénine","gen":1},{"nom":"Anteportas","gen":1},{"nom":"Anthracyclines","gen":1},{"nom":"Antigone"},{"nom":"Anustella","gen":1},{"nom":"Aphroby"},{"nom":"Apollo dit le Bon","gen":1},{"nom":"Archirhum","gen":1},{"nom":"Arlequine","gen":1},{"nom":"Armor Amore","gen":1},{"nom":"Armstrong","gen":1},{"nom":"ArtPOP !","gen":1},{"nom":"Arty Rainbow","gen":1},{"nom":"Arythmie 2.0"},{"nom":"Assurancetourix","gen":1},{"nom":"Astus du Brindacier","gen":1},{"nom":"Atakscie","gen":1},{"nom":"Athéna","gen":1},{"nom":"Atlantis","gen":1},{"nom":"Atlas l'Insoumis","gen":1},{"nom":"Auguste","gen":1},{"nom":"Avrell"},{"nom":"Axolotl","gen":1},{"nom":"Ay Carambar"},{"nom":"B.O.V.N.I.","gen":1},{"nom":"B1B6BB","gen":1},{"nom":"BAKUS KRASSUS","gen":2},{"nom":"BARTHOLOMEUS","gen":1},{"nom":"BASTET","gen":1},{"nom":"BEATLEJUICE","gen":2},{"nom":"BELMONDO intronisé DANTE","gen":2},{"nom":"BRAINBOWT33N","gen":1},{"nom":"Baby Boss","gen":1},{"nom":"Baby Dohll"},{"nom":"Bad Tripes"},{"nom":"Bagheera","gen":1},{"nom":"Bambit, confirmé Klodo","gen":1},{"nom":"Banana Spliff","gen":1},{"nom":"Barbifle"},{"nom":"Barjorak","gen":1},{"nom":"Barjow intronisé René Coty","gen":1},{"nom":"Batbit","gen":1},{"nom":"BawdygHARD","gen":1},{"nom":"BeaulOSS117","gen":1},{"nom":"Belzépute","gen":1},{"nom":"Benoit XVI64","gen":1},{"nom":"Bern is on fire","gen":1},{"nom":"Better Rave","gen":1},{"nom":"Beurk intronisée Jeanne Beurk","gen":1},{"nom":"Bibidi Bobidi Bou","gen":1},{"nom":"Bichat'nikov","gen":1},{"nom":"Bienvenue","gen":1},{"nom":"Big Bad Wolf"},{"nom":"Big Ben","gen":1},{"nom":"Billy Jones l'Exalté","gen":1},{"nom":"Billy la tortue","gen":1},{"nom":"Biscotte","gen":1},{"nom":"Blablacaf","gen":1},{"nom":"Black Swan","gen":1},{"nom":"Blackpouf","gen":1},{"nom":"Blanche Neige","gen":1},{"nom":"Blanche de Kastilleuh","gen":1},{"nom":"Blond Porc","gen":1},{"nom":"BoB","gen":1},{"nom":"Bobo (Bezak)","gen":1},{"nom":"Bolus","gen":1},{"nom":"Bonnemine","gen":1},{"nom":"Bonnet M (Bichat)"},{"nom":"Bonnet M (PD)"},{"nom":"Bonnie barre"},{"nom":"Bonobo","gen":1},{"nom":"Boobs l'éponge"},{"nom":"Boostiflor"},{"nom":"Boudchou","gen":1},{"nom":"Boule de Neige","gen":1},{"nom":"Bounty"},{"nom":"Branli"},{"nom":"Breaking Bed (rebaptise 2.0 G)","gen":1},{"nom":"Bridget","gen":1},{"nom":"Brindille","gen":1},{"nom":"Broly"},{"nom":"Brun Porc des familles","gen":1},{"nom":"Brutal","gen":1},{"nom":"Bugs"},{"nom":"Buzz","gen":1},{"nom":"Buzzy","gen":1},{"nom":"Bès le Furieux","gen":1},{"nom":"Bérénice(pité)"},{"nom":"CALiPSO","gen":1},{"nom":"CARMEN","gen":1},{"nom":"CATARINA","gen":2},{"nom":"CI Mammouth"},{"nom":"COLOMBE","gen":1},{"nom":"CREEPuscule 2.0","gen":1},{"nom":"Calamity Jane","gen":1},{"nom":"Calcifer","gen":1},{"nom":"Caliméro","gen":1},{"nom":"CanariBay"},{"nom":"CapiTAULE","gen":2},{"nom":"Capitaine Jack"},{"nom":"Carie","gen":1},{"nom":"Castagnette","gen":1},{"nom":"Castrato","gen":1},{"nom":"Cendrillon","gen":1},{"nom":"Cerebrow","gen":1},{"nom":"Ch'tyran"},{"nom":"Chagasse"},{"nom":"Chaplin","gen":1},{"nom":"CheerGlitter","gen":1},{"nom":"Cheetah","gen":1},{"nom":"Cheng D. Teach","gen":2},{"nom":"Chewbawax","gen":1},{"nom":"Chihiro"},{"nom":"Chop fusion","gen":1},{"nom":"Choucroute"},{"nom":"Choupinet","gen":1},{"nom":"Christelle (1e necker)","gen":1},{"nom":"Cisplatine","gen":1},{"nom":"CleptiSchtroumpfette"},{"nom":"Clochette","gen":1},{"nom":"Cléopatre"},{"nom":"Cmdt Couchetôt","gen":1},{"nom":"Cogito Velcro Saoul","gen":1},{"nom":"Colonel Moutarde","gen":1},{"nom":"Coq au Vin","gen":1},{"nom":"Cortex","gen":1},{"nom":"Crasse-noisette","gen":1},{"nom":"Crazy Frog","gen":1},{"nom":"Cuicuite","gen":1},{"nom":"Cuni intronisé Buzz the dick"},{"nom":"DAME ARLEQUIN","gen":1},{"nom":"DON JUAN","gen":2},{"nom":"Darkstiny's Chiild intronisée Dalaï Mama"},{"nom":"De Bovary","gen":1},{"nom":"Delirium 7remance","gen":2},{"nom":"Devos","gen":1},{"nom":"Dexter","gen":1},{"nom":"DiVan de Kamp intronisé KHALEESI","gen":1},{"nom":"Dionysos","gen":1},{"nom":"Diva Von Tiz","gen":1},{"nom":"Django"},{"nom":"Djaroule","gen":1},{"nom":"Doc Gigolo","gen":1},{"nom":"Doctopus","gen":1},{"nom":"Don B2OBS"},{"nom":"Don Juan de l'Arsouille"},{"nom":"Don KidSHOCK","gen":1},{"nom":"Dori","gen":1},{"nom":"Dory","gen":1},{"nom":"Doudoushka","gen":1},{"nom":"Dr Holmes","gen":1},{"nom":"Dr Jekyll"},{"nom":"Dr WHATson","gen":1},{"nom":"Drugs bunny"},{"nom":"Duchesse","gen":1},{"nom":"Dumb Bobow (rebaptisée Dumbolost)","gen":1},{"nom":"Duper Bi'ZHard","gen":1},{"nom":"Duracell"},{"nom":"Dynamite","gen":1},{"nom":"Désenchantée (rebaptisée jamais 203)","gen":1},{"nom":"D’Artagnan","gen":2},{"nom":"Eargasm","gen":1},{"nom":"Econominette","gen":1},{"nom":"Emilie","gen":1},{"nom":"Esmeralda","gen":1},{"nom":"FREJYA","gen":2},{"nom":"FULMINA","gen":2},{"nom":"Falcon Punch"},{"nom":"Fanchon le biker"},{"nom":"Fanfoune","gen":1},{"nom":"Fantasia","gen":1},{"nom":"Fantomette","gen":1},{"nom":"Fatal","gen":1},{"nom":"Fervex"},{"nom":"Fifouzepam des familles","gen":1},{"nom":"Firefly","gen":1},{"nom":"Flopazepam.e.s","gen":1},{"nom":"Forest","gen":1},{"nom":"Franck Rhétorique","gen":1},{"nom":"Franky de Bergerac"},{"nom":"Frontal","gen":1},{"nom":"Frère Frakass","gen":1},{"nom":"Frère Luron"},{"nom":"Frère Rackam la Joie"},{"nom":"Frère Tcheese","gen":1},{"nom":"Fu J. Yama","gen":1},{"nom":"Fucky Luke","gen":1},{"nom":"Fumseck","gen":1},{"nom":"Fwere"},{"nom":"Fée Clocharde","gen":1},{"nom":"GAMABUNTA","gen":2},{"nom":"GARGANTUA","gen":1},{"nom":"GI-Joe","gen":1},{"nom":"GaLACscie","gen":1},{"nom":"GalactophoCRIT intronisé Rouxcarnage","gen":1},{"nom":"Galeski SW intronisé Galelmaleh #SW","gen":1},{"nom":"Gargamelle dite la Brute","gen":1},{"nom":"Gaston","gen":1},{"nom":"Gavroche","gen":1},{"nom":"Gaytée","gen":1},{"nom":"Gazoil n°10"},{"nom":"Gazèle"},{"nom":"Geishalope","gen":1},{"nom":"George","gen":1},{"nom":"Gizmo"},{"nom":"Glassgow"},{"nom":"Godzahia","gen":1},{"nom":"Golden Maler","gen":1},{"nom":"Gollum"},{"nom":"Gorée Mifa","gen":1},{"nom":"Gosby La Badouille","gen":1},{"nom":"Goudurix","gen":1},{"nom":"Gourdin","gen":1},{"nom":"Grat'couille","gen":1},{"nom":"Greg","gen":1},{"nom":"Grignette"},{"nom":"Grincheux","gen":1},{"nom":"Groland"},{"nom":"Gromamar"},{"nom":"Gropabo","gen":1},{"nom":"Grotounu","gen":1},{"nom":"Gueunocock"},{"nom":"Guizmo","gen":1},{"nom":"Gulliver intronisé KHAL DROGO","gen":1},{"nom":"Gunther","gen":1},{"nom":"Guronzan","gen":1},{"nom":"Gwendal le Colosse"},{"nom":"HAIELEY QUEEN","gen":1},{"nom":"HUBERT HITS 2000"},{"nom":"Hakanamatata"},{"nom":"Hamstairdam"},{"nom":"Hamtarée","gen":1},{"nom":"Havana moana"},{"nom":"Hemingwait","gen":2},{"nom":"Hercule"},{"nom":"Hermione","gen":1},{"nom":"Hermès","gen":2},{"nom":"Hiatus","gen":1},{"nom":"Hippocrade","gen":1},{"nom":"Hippodium","gen":1},{"nom":"Hodor","gen":1},{"nom":"Hot Dogg","gen":1},{"nom":"Hoteigne","gen":1},{"nom":"Hugal"},{"nom":"INVICTHUM intronisé JACQUEMUSE","gen":2},{"nom":"Ibu","gen":1},{"nom":"Icterichu des familles","gen":1},{"nom":"Imhotep","gen":2},{"nom":"Inari Le Mélodieux","gen":1},{"nom":"Iris de Yourcenar","gen":1},{"nom":"Iron Moon"},{"nom":"JCVD"},{"nom":"JEAN le CLOWN intronisé NIKA","gen":1},{"nom":"JOKER","gen":2},{"nom":"Jacky"},{"nom":"Jackyra","gen":1},{"nom":"Jaco Ergo Sum","gen":1},{"nom":"Jamy Neuneutron","gen":1},{"nom":"Japoulette","gen":1},{"nom":"Jean Barde de la Fontaine","gen":2},{"nom":"Jean Benêt de la Fête","gen":1},{"nom":"Jean D. Haddock","gen":1},{"nom":"Jean Guy George De La Cruche","gen":1},{"nom":"Jean Pierrot de la Cuisse","gen":1},{"nom":"Jean Poulet du Pilon","gen":1},{"nom":"Jean Vaillant de Volange"},{"nom":"JeanJacqueur de Lion","gen":1},{"nom":"Jessy Star","gen":1},{"nom":"Jocelingot d'or","gen":1},{"nom":"Jokeur","gen":1},{"nom":"Jonah l'Eunuque","gen":1},{"nom":"Jp foufoune"},{"nom":"Jus d'orange","gen":1},{"nom":"KAKIKABUTCH","gen":2},{"nom":"KB"},{"nom":"KBdur LaMOUSSter"},{"nom":"KCALASHNIKOFF 1.1","gen":1},{"nom":"KIRBY","gen":1},{"nom":"KK Maro","gen":1},{"nom":"KKTwist"},{"nom":"Kasé de Plougastel"},{"nom":"Kick-Ass","gen":1},{"nom":"KickCat","gen":1},{"nom":"Kiddo","gen":1},{"nom":"KimPossible","gen":2},{"nom":"Kinder Surprise","gen":1},{"nom":"Kiss Cool","gen":1},{"nom":"Kiss en foutre","gen":1},{"nom":"Kiwicopter/Marmalou 1er","gen":1},{"nom":"Kleenex"},{"nom":"Korsakoff","gen":1},{"nom":"KoukSAH","gen":1},{"nom":"Kralotte","gen":1},{"nom":"Krotadpoil intronisé Krokette","gen":1},{"nom":"Kunderace","gen":1},{"nom":"L'ALCHIMISTE","gen":1},{"nom":"L'Affranchie","gen":1},{"nom":"L'Exorciste","gen":1},{"nom":"L'Ingénue (Armelle)"},{"nom":"L'Ingénue (Julia)","gen":1},{"nom":"L'Ours"},{"nom":"L'Oxymore"},{"nom":"L'Utopic","gen":1},{"nom":"L'Âne Trotro","gen":2},{"nom":"LA MÔME","gen":2},{"nom":"LE PETIT PRINCE","gen":2},{"nom":"LEXUS","gen":1},{"nom":"LILITH","gen":2},{"nom":"La Bayadère","gen":1},{"nom":"La Bête","gen":1},{"nom":"La CASTAFIOR","gen":1},{"nom":"La Débrouille"},{"nom":"La Gaudriole","gen":1},{"nom":"La Mèche","gen":1},{"nom":"La Rose Ecarlate"},{"nom":"La Trouille","gen":1},{"nom":"Labouliche"},{"nom":"Laddy Hopps"},{"nom":"Lady Cash","gen":1},{"nom":"Lady Douwdou","gen":1},{"nom":"Lady Gloops","gen":2},{"nom":"Lanceleau"},{"nom":"Lancelot","gen":1},{"nom":"Lapin's","gen":1},{"nom":"Lapin'sette"},{"nom":"Laura (SA)","gen":1},{"nom":"Le Bouc"},{"nom":"Le Byzantin"},{"nom":"Le Phoenix","gen":1},{"nom":"Le Roi Merlin"},{"nom":"Le Soliste","gen":1},{"nom":"LedZeSplif","gen":1},{"nom":"Leethiase"},{"nom":"Legaylas le Grand"},{"nom":"Lilipute","gen":1},{"nom":"Little Big Witch"},{"nom":"Little Mix Sunshine","gen":1},{"nom":"Lolita","gen":1},{"nom":"Lorie"},{"nom":"Lotus","gen":1},{"nom":"Louis la Brocante","gen":1},{"nom":"Lucrèce"},{"nom":"Lumos","gen":1},{"nom":"LÉONHARD.","gen":2},{"nom":"MAD JACKASS","gen":2},{"nom":"MAGNUM","gen":2},{"nom":"MAMIE $OUZE II","gen":1},{"nom":"MAVERICK","gen":1},{"nom":"MAWY Trez","gen":1},{"nom":"MAYHEM","gen":2},{"nom":"MC AlJahGerbrah","gen":1},{"nom":"MERRYADOC","gen":2},{"nom":"MIKObacTER Aureus le V (W)","gen":1},{"nom":"MISTRALE","gen":2},{"nom":"MInion MIchtonne intronisée MORFEE 2.0","gen":1},{"nom":"Mac krakou"},{"nom":"Machiavelutro (rebaptisé Machiavel)","gen":1},{"nom":"Macquard"},{"nom":"Mademoiselle Bean","gen":2},{"nom":"Maestrator","gen":1},{"nom":"Maestro"},{"nom":"Maextröm","gen":1},{"nom":"Magic Bel Organal","gen":1},{"nom":"Maitre Renard","gen":1},{"nom":"Mallory Weiss","gen":1},{"nom":"Mamma Mia !","gen":1},{"nom":"Mamouna"},{"nom":"Manue"},{"nom":"MarMaCrotte intronisé MarMacCartney","gen":1},{"nom":"Maratkiri","gen":1},{"nom":"Marc Dorfez","gen":1},{"nom":"Marie Antoinette","gen":1},{"nom":"Marilyn","gen":1},{"nom":"Marly Golmont","gen":1},{"nom":"Marquis de Schlag","gen":1},{"nom":"Master Ωmind","gen":2},{"nom":"Mata Hari","gen":1},{"nom":"Matoaka, intronisée La Louve","gen":1},{"nom":"Mawie-Pistil","gen":1},{"nom":"MaximaThor","gen":1},{"nom":"Maximus dit le Truand","gen":1},{"nom":"Maître Lupin","gen":1},{"nom":"MeWeeDa","gen":1},{"nom":"MegaNasoSchtroumpf"},{"nom":"Mellowtopia","gen":1},{"nom":"Melody","gen":1},{"nom":"Memy Kravitz","gen":1},{"nom":"Mercury","gen":1},{"nom":"Merlin","gen":1},{"nom":"Mgr. BachPipe","gen":1},{"nom":"Michelangelo"},{"nom":"Micromégas","gen":1},{"nom":"Microwgli"},{"nom":"Mikado","gen":1},{"nom":"Mike Drup","gen":1},{"nom":"Miki","gen":1},{"nom":"Mimi Cracra"},{"nom":"Mini Foie","gen":1},{"nom":"Minitel","gen":1},{"nom":"Minouch","gen":1},{"nom":"Miss Teigne","gen":1},{"nom":"Misstitch","gen":1},{"nom":"Mister Hyde","gen":1},{"nom":"Mistinguett","gen":1},{"nom":"Mitsouko","gen":1},{"nom":"Miôm Miam"},{"nom":"Molière dit le Philanthrope","gen":1},{"nom":"Monsieur PORC","gen":1},{"nom":"Morpheus","gen":1},{"nom":"Mozzabella","gen":1},{"nom":"Mr B","gen":1},{"nom":"Mr Hyde","gen":1},{"nom":"Musashi","gen":1},{"nom":"My Little Kraken"},{"nom":"NIMUE","gen":2},{"nom":"Nabilash","gen":1},{"nom":"Naboléon","gen":1},{"nom":"Nationale 7"},{"nom":"Nausicaä","gen":1},{"nom":"Nautilus","gen":1},{"nom":"Nazdrowje"},{"nom":"Nekophylaxie","gen":1},{"nom":"Nemo","gen":1},{"nom":"Neness"},{"nom":"Nenette","gen":1},{"nom":"Neville","gen":1},{"nom":"Nickel de Limoges"},{"nom":"Nicklure","gen":1},{"nom":"Nikator","gen":1},{"nom":"Nimbus","gen":1},{"nom":"Nitrogena","gen":1},{"nom":"No Woman No Cry","gen":1},{"nom":"Noisette"},{"nom":"Nosferatu","gen":1},{"nom":"Nostradamus","gen":1},{"nom":"Nutz","gen":1},{"nom":"Nymphé Ah!","gen":1},{"nom":"Nymphéa"},{"nom":"Nyx"},{"nom":"Néo intronisé Dracarys réintronisé HAKU 2.0","gen":1},{"nom":"ONYX intronisée La Peintress","gen":2},{"nom":"Odeline"},{"nom":"Oh OuiOui intronisé Oui oui"},{"nom":"Oompa Loompette","gen":1},{"nom":"Oscar","gen":1},{"nom":"Oscar Le Sartorial","gen":1},{"nom":"Ouarzezette","gen":1},{"nom":"Oups","gen":1},{"nom":"PERSEPHONE","gen":2},{"nom":"PIERROT","gen":2},{"nom":"PINK LADY DI","gen":2},{"nom":"PLOT TWIST","gen":2},{"nom":"PSA (Colonel Castor GM)"},{"nom":"Pablo el Concritador"},{"nom":"Pachy le Biker de père en fils"},{"nom":"Palmbit"},{"nom":"Palpac"},{"nom":"Panpan"},{"nom":"Pantagruel","gen":1},{"nom":"Panthéon"},{"nom":"Parikea","gen":1},{"nom":"Pastaga","gen":1},{"nom":"Peekaboo","gen":1},{"nom":"Pendragon","gen":1},{"nom":"Perceval"},{"nom":"Peter Paon intronisé CRAZY HOErse"},{"nom":"Petit Jean du Grand Gousier","gen":1},{"nom":"Phare-À-On","gen":1},{"nom":"Phigaro","gen":1},{"nom":"Philundera (rebaptisé Kasanova)","gen":1},{"nom":"Phoenix"},{"nom":"Pic 2","gen":1},{"nom":"Pikashot","gen":1},{"nom":"Pikassos","gen":1},{"nom":"Pimpal","gen":1},{"nom":"Pingui","gen":1},{"nom":"Pippin de la Comté","gen":1},{"nom":"Pisse-Partout","gen":1},{"nom":"Podium"},{"nom":"Poison Ivy","gen":1},{"nom":"Polype"},{"nom":"Poney","gen":1},{"nom":"Ponyo","gen":1},{"nom":"Pr. Gusteau","gen":1},{"nom":"Premat","gen":1},{"nom":"ProméthiS","gen":1},{"nom":"Président GrothenDick","gen":1},{"nom":"Psychee","gen":1},{"nom":"Psychokwak"},{"nom":"Ptit Riricard","gen":1},{"nom":"Ptit Swiss","gen":1},{"nom":"Punkachat","gen":1},{"nom":"Pupbizarre","gen":1},{"nom":"Pussy Dark Doll","gen":1},{"nom":"Pussyfire"},{"nom":"Puyobitbit","gen":1},{"nom":"PÈRE CASTOR","gen":2},{"nom":"Pépite","gen":1},{"nom":"QUASAR KO intronisé KRÓNOS","gen":2},{"nom":"Queen Bi","gen":1},{"nom":"QueueAnalPlus","gen":1},{"nom":"Quintal","gen":1},{"nom":"RATAT'HOUILLE","gen":1},{"nom":"REY","gen":2},{"nom":"Rabbit","gen":1},{"nom":"RacePoutine","gen":1},{"nom":"Racemoket","gen":1},{"nom":"Rafal","gen":1},{"nom":"Ragnarock","gen":1},{"nom":"Rainha Bianca","gen":1},{"nom":"Rantanplan","gen":1},{"nom":"Ratafiotte","gen":1},{"nom":"Raven","gen":1},{"nom":"Rhugal Rocket \"hugal\""},{"nom":"Rigolo dit le benet"},{"nom":"Rital","gen":1},{"nom":"Ritaline","gen":1},{"nom":"Riztaline","gen":1},{"nom":"Rnardinho","gen":1},{"nom":"Robin des Bois intronisé Liber Pater","gen":1},{"nom":"Rollerman"},{"nom":"Rosanus"},{"nom":"Rougeon"},{"nom":"SATYRICUS intronisé ARTHAS","gen":2},{"nom":"SID","gen":2},{"nom":"SIRIUS","gen":2},{"nom":"SPIRIT","gen":1},{"nom":"Sainte-Anne","gen":1},{"nom":"Saloon","gen":1},{"nom":"Sammy"},{"nom":"Sans Plomb 98 intronisé Kim Jong WeeD","gen":1},{"nom":"Saoul Dural"},{"nom":"Saoul le vent","gen":1},{"nom":"Sartreuse","gen":1},{"nom":"Scandale (Bichat)"},{"nom":"Scandale (PD)"},{"nom":"Schtroumpfette","gen":1},{"nom":"Schumacher","gen":1},{"nom":"Scrotum","gen":1},{"nom":"Sensei","gen":1},{"nom":"SerpenTAZ","gen":1},{"nom":"Sexskiz"},{"nom":"Sherloque"},{"nom":"Shooting Star","gen":1},{"nom":"Shut Pinup","gen":1},{"nom":"Shy Twinks","gen":1},{"nom":"Sicindy 1ère"},{"nom":"Simba","gen":1},{"nom":"Simone de BauxDrame"},{"nom":"Simplet","gen":1},{"nom":"Sir RoccoSyphillis (rebaptisé Poule)","gen":1},{"nom":"Sister Act intronisée XVI","gen":1},{"nom":"Skippy (Lyon)","gen":1},{"nom":"Snoop Doug","gen":1},{"nom":"SodoMikiBit","gen":1},{"nom":"SodoMolaireMénien","gen":1},{"nom":"Soeur Loki","gen":1},{"nom":"Souchon","gen":1},{"nom":"Soviet"},{"nom":"Spartacus","gen":1},{"nom":"Spicy Kirby","gen":1},{"nom":"Starivarius","gen":1},{"nom":"Stimulus","gen":1},{"nom":"Suolaalala","gen":1},{"nom":"Super Pulicellum 98","gen":1},{"nom":"Super Smash 2"},{"nom":"Sôjasun intronisée Scarface","gen":1},{"nom":"T-toi-clak","gen":1},{"nom":"TITANIA","gen":1},{"nom":"Talc"},{"nom":"Talky Wookie","gen":1},{"nom":"Tarpé Diem","gen":1},{"nom":"Technu intronisé Indus 2000","gen":1},{"nom":"Tempête","gen":1},{"nom":"Thallegoria","gen":1},{"nom":"The Little Mermed","gen":1},{"nom":"Thor","gen":1},{"nom":"Ti Nem","gen":1},{"nom":"Tigraou","gen":1},{"nom":"Tinky Winky","gen":1},{"nom":"TiramiSaoul","gen":1},{"nom":"Tiroux","gen":1},{"nom":"Titanus"},{"nom":"Tom Sawyer","gen":1},{"nom":"Tom'Boy"},{"nom":"Tonktonk","gen":1},{"nom":"Tony Tony Chopper"},{"nom":"Toumouna"},{"nom":"Toussa des familles","gen":1},{"nom":"Toxique"},{"nom":"TrepA(l)Yamimi"},{"nom":"Tropopulsé²","gen":1},{"nom":"Tutu (PO)","gen":1},{"nom":"Ultrash","gen":1},{"nom":"Ulysse","gen":1},{"nom":"UnivPD","gen":1},{"nom":"Valmont","gen":1},{"nom":"Van Hool","gen":1},{"nom":"VeaumichtON","gen":1},{"nom":"Ventcomimi"},{"nom":"Vicomte de Rostand","gen":2},{"nom":"Volt intronisé Argos","gen":2},{"nom":"VomixCube","gen":1},{"nom":"Vénus","gen":1},{"nom":"WAIT FOR HIT","gen":1},{"nom":"WANDER WOMAN","gen":2},{"nom":"Walex","gen":1},{"nom":"Wallabeer intronisée Kickasse"},{"nom":"Weeds seventies"},{"nom":"Why So Sirius?","gen":1},{"nom":"Wild Weed OH","gen":1},{"nom":"Woo Khi Kong","gen":1},{"nom":"Wrecking Bi intronisé TSUNADE","gen":1},{"nom":"Xou Alarace","gen":1},{"nom":"YMIR","gen":2},{"nom":"Yaklitoris","gen":1},{"nom":"Yggdrasil","gen":1},{"nom":"Yo L'eau"},{"nom":"Yûkisen","gen":1},{"nom":"Zango Unchained"},{"nom":"Zaza la Débrouille","gen":2},{"nom":"Zob","gen":1},{"nom":"Zobiwan Kenobo","gen":1},{"nom":"ZuZu l'impératrice","gen":1},{"nom":"_","gen":1},{"nom":"appelle moi papa"},{"nom":"baloo 2.0"},{"nom":"bouing bouing","gen":1},{"nom":"carlama"},{"nom":"comasutra"},{"nom":"cry hot (satin de lyon)","gen":1},{"nom":"delpoutre","gen":1},{"nom":"esnemralda"},{"nom":"grasspabelle","gen":1},{"nom":"highlander","gen":1},{"nom":"pandore","gen":1},{"nom":"petit goret","gen":1},{"nom":"refmo","gen":1},{"nom":"rubio","gen":1},{"nom":"rugbite"},{"nom":"tigerboobs","gen":1},{"nom":"wikikiwi","gen":1},{"nom":"yes we can","gen":1},{"nom":"zitOH'TISTE"},{"nom":"Ôsono di Dolto","gen":2}],
+
+"liens":[{"parrain":"MAWY Trez","filleul":"MeWeeDa"},{"parrain":"MAWY Trez","filleul":"HAIELEY QUEEN"},{"parrain":"MAWY Trez","filleul":"Mozzabella"},{"parrain":"MAWY Trez","filleul":"Phare-À-On"},
+{"parrain":"MeWeeDa","filleul":"Fu J. Yama"},
+{"parrain":"Robin des Bois intronisé Liber Pater","filleul":"Don KidSHOCK"},
+{"parrain":"Don KidSHOCK","filleul":"MAMIE $OUZE II"},
+{"parrain":"Lumos","filleul":"Armor Amore"},
+{"parrain":"Armor Amore","filleul":"Gulliver intronisé KHAL DROGO"},{"parrain":"Armor Amore","filleul":"DiVan de Kamp intronisé KHALEESI"},{"parrain":"Armor Amore","filleul":"Oompa Loompette"},{"parrain":"Armor Amore","filleul":"SID"},{"parrain":"Armor Amore","filleul":"Wrecking Bi intronisé TSUNADE"},{"parrain":"Armor Amore","filleul":"KAKIKABUTCH"},
+{"parrain":"Riztaline","filleul":"KCALASHNIKOFF 1.1"},{"parrain":"Riztaline","filleul":"Barjorak"},
+{"parrain":"KCALASHNIKOFF 1.1","filleul":"Crasse-noisette"},{"parrain":"KCALASHNIKOFF 1.1","filleul":"MAMIE $OUZE II"},
+{"parrain":"BawdygHARD","filleul":"Mgr. BachPipe"},{"parrain":"BawdygHARD","filleul":"GARGANTUA"},{"parrain":"BawdygHARD","filleul":"BRAINBOWT33N"},
+{"parrain":"Mgr. BachPipe","filleul":"Alice in Lalaland"},{"parrain":"Mgr. BachPipe","filleul":"Président GrothenDick"},
+{"parrain":"Neville","filleul":"Yggdrasil"},
+{"parrain":"Yggdrasil","filleul":"CALiPSO"},{"parrain":"Yggdrasil","filleul":"KimPossible"},
+{"parrain":"Lotus","filleul":"Athéna"},
+{"parrain":"Lotus","filleul":"Matoaka, intronisée La Louve"},{"parrain":"Lotus","filleul":"La Rose Ecarlate"},
+{"parrain":"Athéna","filleul":"KIRBY"},{"parrain":"Athéna","filleul":"MISTRALE"},{"parrain":"Athéna","filleul":"PÈRE CASTOR"},
+{"parrain":"Banana Spliff","filleul":"BRAINBOWT33N"},{"parrain":"Banana Spliff","filleul":"Lady Gloops"},{"parrain":"Banana Spliff","filleul":"BARTHOLOMEUS"},
+{"parrain":"BRAINBOWT33N","filleul":"YMIR"},{"parrain":"BRAINBOWT33N","filleul":"PINK LADY DI"},{"parrain":"BRAINBOWT33N","filleul":"PIERROT"},{"parrain":"BRAINBOWT33N","filleul":"JEAN le CLOWN intronisé NIKA"},
+{"parrain":"Flopazepam.e.s","filleul":"ArtPOP !"},{"parrain":"Flopazepam.e.s","filleul":"Pr. Gusteau"},
+{"parrain":"ArtPOP !","filleul":"DAME ARLEQUIN"},{"parrain":"ArtPOP !","filleul":"DiVan de Kamp intronisé KHALEESI"},
+{"parrain":"Poison Ivy","filleul":"KoukSAH"},{"parrain":"Poison Ivy","filleul":"WAIT FOR HIT"},
+{"parrain":"KoukSAH","filleul":"Raven"},{"parrain":"KoukSAH","filleul":"Marquis de Schlag"},{"parrain":"KoukSAH","filleul":"Mercury"},
+{"parrain":"Calcifer","filleul":"Nautilus"},{"parrain":"Calcifer","filleul":"Hemingwait"},{"parrain":"Calcifer","filleul":"LE PETIT PRINCE"},
+{"parrain":"Nautilus","filleul":"PERSEPHONE"},{"parrain":"Nautilus","filleul":"Marquis de Schlag"},
+{"parrain":"Pippin de la Comté","filleul":"L'Âne Trotro"},{"parrain":"Pippin de la Comté","filleul":"Fu J. Yama"},
+{"parrain":"Hoteigne","filleul":"GaLACscie"},
+{"parrain":"GaLACscie","filleul":"Master Ωmind"},{"parrain":"GaLACscie","filleul":"CapiTAULE"},{"parrain":"GaLACscie","filleul":"Alice in Lalaland"},
+{"parrain":"Nitrogena","filleul":"Le Phoenix"},{"parrain":"Nitrogena","filleul":"MeWeeDa"},{"parrain":"Nitrogena","filleul":"KCALASHNIKOFF 1.1"},{"parrain":"Nitrogena","filleul":"The Little Mermed"},{"parrain":"Nitrogena","filleul":"Marie Antoinette"},
+{"parrain":"Le Phoenix","filleul":"Inari Le Mélodieux"},{"parrain":"Le Phoenix","filleul":"Mamma Mia !"},{"parrain":"Le Phoenix","filleul":"SID"},
+{"parrain":"Pépite","filleul":"Starivarius"},
+{"parrain":"Starivarius","filleul":"Oompa Loompette"},
+{"parrain":"Nutz","filleul":"Rainha Bianca"},
+{"parrain":"Rainha Bianca","filleul":"Snoop Doug"},{"parrain":"Rainha Bianca","filleul":"Dr WHATson"},{"parrain":"Rainha Bianca","filleul":"KimPossible"},{"parrain":"Rainha Bianca","filleul":"Master Ωmind"},{"parrain":"Rainha Bianca","filleul":"SerpenTAZ"},
+{"parrain":"Peekaboo","filleul":"AMAZONASS 3, intronisée PANDORA"},
+{"parrain":"AMAZONASS 3, intronisée PANDORA","filleul":"QUASAR KO intronisé KRÓNOS"},{"parrain":"AMAZONASS 3, intronisée PANDORA","filleul":"Cheng D. Teach"},{"parrain":"AMAZONASS 3, intronisée PANDORA","filleul":"Mamma Mia !"},
+{"parrain":"The Little Mermed","filleul":"HAIELEY QUEEN"},{"parrain":"The Little Mermed","filleul":"Don KidSHOCK"},
+{"parrain":"HAIELEY QUEEN","filleul":"CALiPSO"},
+{"parrain":"WAIT FOR HIT","filleul":"Devos"},{"parrain":"WAIT FOR HIT","filleul":"Soeur Loki"},
+{"parrain":"Action Man","filleul":"DON JUAN"},{"parrain":"Action Man","filleul":"PLOT TWIST"},{"parrain":"Action Man","filleul":"Athéna"},{"parrain":"Action Man","filleul":"Raven"},
+{"parrain":"Pr. Gusteau","filleul":"Oscar Le Sartorial"},{"parrain":"Pr. Gusteau","filleul":"Mgr. BachPipe"},{"parrain":"Pr. Gusteau","filleul":"Yggdrasil"},{"parrain":"Pr. Gusteau","filleul":"L'ALCHIMISTE"},
+{"parrain":"Oscar Le Sartorial","filleul":"Iris de Yourcenar"},{"parrain":"Oscar Le Sartorial","filleul":"Président GrothenDick"},{"parrain":"Oscar Le Sartorial","filleul":"Cheng D. Teach"},
+{"parrain":"$hit $ale","filleul":"MAVERICK"},{"parrain":"$hit $ale","filleul":"Néo intronisé Dracarys réintronisé HAKU 2.0"},{"parrain":"$hit $ale","filleul":"Imhotep"},{"parrain":"$hit $ale","filleul":"Poison Ivy"},{"parrain":"$hit $ale","filleul":"Golden Maler"},
+{"parrain":"MAVERICK","filleul":"QUASAR KO intronisé KRÓNOS"},
+{"parrain":"GARGANTUA","filleul":"JEAN le CLOWN intronisé NIKA"},{"parrain":"GARGANTUA","filleul":"MAGNUM"},{"parrain":"GARGANTUA","filleul":"BAKUS KRASSUS"},
+{"parrain":"Talky Wookie","filleul":"Black Swan"},
+{"parrain":"Black Swan","filleul":"Imhotep"},
+{"parrain":"Gulliver intronisé KHAL DROGO","filleul":"MERRYADOC"},{"parrain":"Gulliver intronisé KHAL DROGO","filleul":"PÈRE CASTOR"},{"parrain":"Gulliver intronisé KHAL DROGO","filleul":"LILITH"},{"parrain":"Gulliver intronisé KHAL DROGO","filleul":"YMIR"},
+{"parrain":"Bès le Furieux","filleul":"Néo intronisé Dracarys réintronisé HAKU 2.0"},{"parrain":"Bès le Furieux","filleul":"De Bovary"},{"parrain":"Bès le Furieux","filleul":"L'Affranchie"},{"parrain":"Bès le Furieux","filleul":"BARTHOLOMEUS"},{"parrain":"Bès le Furieux","filleul":"Jean Barde de la Fontaine"},{"parrain":"Bès le Furieux","filleul":"LE PETIT PRINCE"},{"parrain":"Bès le Furieux","filleul":"Jean D. Haddock"},
+{"parrain":"Néo intronisé Dracarys réintronisé HAKU 2.0","filleul":"Mademoiselle Bean"},{"parrain":"Néo intronisé Dracarys réintronisé HAKU 2.0","filleul":"LÉONHARD."},{"parrain":"Néo intronisé Dracarys réintronisé HAKU 2.0","filleul":"BELMONDO intronisé DANTE"},{"parrain":"Néo intronisé Dracarys réintronisé HAKU 2.0","filleul":"+4"},
+{"parrain":"Dexter","filleul":"Auguste"},
+{"parrain":"Auguste","filleul":"Le Soliste"},{"parrain":"Auguste","filleul":"PERSEPHONE"},
+{"parrain":"De Bovary","filleul":"COLOMBE"},{"parrain":"De Bovary","filleul":"DAME ARLEQUIN"},
+{"parrain":"Nimbus","filleul":"Nosferatu"},{"parrain":"Nimbus","filleul":"Mercury"},{"parrain":"Nimbus","filleul":"L'ALCHIMISTE"},{"parrain":"Nimbus","filleul":"LEXUS"},{"parrain":"Nimbus","filleul":"Jean D. Haddock"},
+{"parrain":"Nosferatu","filleul":"SPIRIT"},{"parrain":"Nosferatu","filleul":"Soeur Loki"},
+{"parrain":"Mercury","filleul":"APHRODISIAS"},{"parrain":"Mercury","filleul":"CARMEN"},
+{"parrain":"L'Affranchie","filleul":"Atlas l'Insoumis"},{"parrain":"L'Affranchie","filleul":"Devos"},{"parrain":"L'Affranchie","filleul":"COLOMBE"},{"parrain":"L'Affranchie","filleul":"FULMINA"},
+{"parrain":"DiVan de Kamp intronisé KHALEESI","filleul":"INVICTHUM intronisé JACQUEMUSE"},{"parrain":"DiVan de Kamp intronisé KHALEESI","filleul":"KAKIKABUTCH"},{"parrain":"DiVan de Kamp intronisé KHALEESI","filleul":"LILITH"},{"parrain":"DiVan de Kamp intronisé KHALEESI","filleul":"BEATLEJUICE"},
+{"parrain":"Inari Le Mélodieux","filleul":"Iris de Yourcenar"},{"parrain":"Inari Le Mélodieux","filleul":"MERRYADOC"},{"parrain":"Inari Le Mélodieux","filleul":"SATYRICUS intronisé ARTHAS"},
+{"parrain":"Fu J. Yama","filleul":"FREJYA"},{"parrain":"Fu J. Yama","filleul":"GAMABUNTA"},{"parrain":"Fu J. Yama","filleul":"PINK LADY DI"},
+{"parrain":"Axolotl","filleul":"Hermès"},{"parrain":"Axolotl","filleul":"ARTEMISIA"},{"parrain":"Axolotl","filleul":"CapiTAULE"},
+{"parrain":"Mozzabella","filleul":"Crasse-noisette"},
+{"parrain":"Crasse-noisette","filleul":"SerpenTAZ"},{"parrain":"Crasse-noisette","filleul":"Wrecking Bi intronisé TSUNADE"},
+{"parrain":"MAMIE $OUZE II","filleul":"Vicomte de Rostand"},
+{"parrain":"Sans Plomb 98 intronisé Kim Jong WeeD","filleul":"Snoop Doug"},
+{"parrain":"Snoop Doug","filleul":"WANDER WOMAN"},{"parrain":"Snoop Doug","filleul":"Zaza la Débrouille"},
+{"parrain":"Raven","filleul":"TITANIA"},{"parrain":"Raven","filleul":"SIRIUS"},
+{"parrain":"L'ALCHIMISTE","filleul":"Vicomte de Rostand"},
+{"parrain":"Marquis de Schlag","filleul":"Yûkisen"},
+{"parrain":"BARTHOLOMEUS","filleul":"NIMUE"},{"parrain":"BARTHOLOMEUS","filleul":"JOKER"},
+{"parrain":"Jean D. Haddock","filleul":"KIRBY"},{"parrain":"Jean D. Haddock","filleul":"Auguste"},{"parrain":"Jean D. Haddock","filleul":"BASTET"},
+{"parrain":"KIRBY","filleul":"CARMEN"},{"parrain":"KIRBY","filleul":"GAMABUNTA"},{"parrain":"KIRBY","filleul":"ONYX intronisée La Peintress"},{"parrain":"KIRBY","filleul":"MAD JACKASS"},{"parrain":"KIRBY","filleul":"BEATLEJUICE"},{"parrain":"KIRBY","filleul":"D’Artagnan"},
+{"parrain":"Jus d'orange","filleul":"Dr WHATson"},
+{"parrain":"Dr WHATson","filleul":"TITANIA"},{"parrain":"Dr WHATson","filleul":"AMATERAUS…"},{"parrain":"Dr WHATson","filleul":"+4"},
+{"parrain":"Kiddo","filleul":"MISTRALE"},{"parrain":"Kiddo","filleul":"BASTET"},{"parrain":"Kiddo","filleul":"LEXUS"},{"parrain":"Kiddo","filleul":"Volt intronisé Argos"},{"parrain":"Kiddo","filleul":"Billy Jones l'Exalté"},{"parrain":"Kiddo","filleul":"La Rose Ecarlate"},{"parrain":"Kiddo","filleul":"Atlantis"},
+{"parrain":"Alice in Lalaland","filleul":"Yûkisen"},{"parrain":"Alice in Lalaland","filleul":"WANDER WOMAN"},
+{"parrain":"Oompa Loompette","filleul":"INVICTHUM intronisé JACQUEMUSE"},{"parrain":"Oompa Loompette","filleul":"REY"},
+{"parrain":"CALiPSO","filleul":"FREJYA"},{"parrain":"CALiPSO","filleul":"Jean Barde de la Fontaine"},
+{"parrain":"Barjorak","filleul":"La CASTAFIOR"},
+{"parrain":"La CASTAFIOR","filleul":"NIMUE"},{"parrain":"La CASTAFIOR","filleul":"BELMONDO intronisé DANTE"},
+{"parrain":"LEXUS","filleul":"SIRIUS"},
+{"parrain":"Matoaka, intronisée La Louve","filleul":"SPIRIT"},{"parrain":"Matoaka, intronisée La Louve","filleul":"Maître Lupin"},
+{"parrain":"SPIRIT","filleul":"PIERROT"},
+{"parrain":"JEAN le CLOWN intronisé NIKA","filleul":"MAD JACKASS"},{"parrain":"JEAN le CLOWN intronisé NIKA","filleul":"CATARINA"},
+{"parrain":"Mamma Mia !","filleul":"MAYHEM"},
+{"parrain":"DAME ARLEQUIN","filleul":"SATYRICUS intronisé ARTHAS"},{"parrain":"DAME ARLEQUIN","filleul":"Ôsono di Dolto"},
+{"parrain":"Billy Jones l'Exalté","filleul":"Atlas l'Insoumis"},{"parrain":"Billy Jones l'Exalté","filleul":"Gulliver intronisé KHAL DROGO"},{"parrain":"Billy Jones l'Exalté","filleul":"GARGANTUA"},{"parrain":"Billy Jones l'Exalté","filleul":"Atlantis"},
+{"parrain":"Atlas l'Insoumis","filleul":"JOKER"},{"parrain":"Atlas l'Insoumis","filleul":"BAKUS KRASSUS"},{"parrain":"Atlas l'Insoumis","filleul":"BELMONDO intronisé DANTE"},{"parrain":"Atlas l'Insoumis","filleul":"ONYX intronisée La Peintress"},
+{"parrain":"Wrecking Bi intronisé TSUNADE","filleul":"APHRODISIAS"},{"parrain":"Wrecking Bi intronisé TSUNADE","filleul":"MAYHEM"},{"parrain":"Le Soliste","filleul":"Volt intronisé Argos"},{"parrain":"Le Soliste","filleul":"FULMINA"},{"parrain":"Le Soliste","filleul":"D’Artagnan"},{"parrain":"Devos","filleul":"Delirium 7remance"},{"parrain":"Devos","filleul":"Mademoiselle Bean"},{"parrain":"SerpenTAZ","filleul":"LÉONHARD."},{"parrain":"Iris de Yourcenar","filleul":"Zaza la Débrouille"},{"parrain":"Iris de Yourcenar","filleul":"Ôsono di Dolto"},{"parrain":"Soeur Loki","filleul":"LA MÔME"},{"parrain":"Président GrothenDick","filleul":"Delirium 7remance"},{"parrain":"COLOMBE","filleul":"REY"},{"parrain":"COLOMBE","filleul":"ARLO"},{"parrain":"COLOMBE","filleul":"LÉONHARD."},{"parrain":"COLOMBE","filleul":"LA MÔME"},{"parrain":"CARMEN","filleul":"CATARINA"},{"parrain":"BASTET","filleul":"ARLO"},{"parrain":"TITANIA","filleul":"MAGNUM"},{"parrain":"Yûkisen","filleul":"AMATERAUS…"},{"parrain":"Désenchantée (rebaptisée jamais 203)","filleul":"Armor Amore"},{"parrain":"Mike Drup","filleul":"ArtPOP !"},{"parrain":"Saoul le vent","filleul":"KoukSAH"},{"parrain":"Maextröm","filleul":"Nautilus"},{"parrain":"Maextröm","filleul":"Hakanamatata"},{"parrain":"Maextröm","filleul":"Pr. Gusteau"},{"parrain":"No Woman No Cry","filleul":"Hemingwait"},{"parrain":"No Woman No Cry","filleul":"Nutz"},{"parrain":"No Woman No Cry","filleul":"$hit $ale"},{"parrain":"No Woman No Cry","filleul":"Mike Drup"},{"parrain":"Marie Antoinette","filleul":"L'Âne Trotro"},{"parrain":"Phare-À-On","filleul":"GaLACscie"},{"parrain":"Doctopus","filleul":"Le Phoenix"},{"parrain":"Doctopus","filleul":"Psychee"},{"parrain":"Firefly","filleul":"Starivarius"},{"parrain":"Firefly","filleul":"Robin des Bois intronisé Liber Pater"},{"parrain":"ProméthiS","filleul":"Rainha Bianca"},{"parrain":"ProméthiS","filleul":"Oscar Le Sartorial"},{"parrain":"Psychee","filleul":"AMAZONASS 3, intronisée PANDORA"},{"parrain":"Shooting Star","filleul":"WAIT FOR HIT"},{"parrain":"Shooting Star","filleul":"Poison Ivy"},{"parrain":"Golden Maler","filleul":"DON JUAN"},{"parrain":"Nausicaä","filleul":"MAVERICK"},{"parrain":"Nausicaä","filleul":"Hakanamatata"},{"parrain":"Nausicaä","filleul":"ProméthiS"},{"parrain":"Nausicaä","filleul":"HUBERT HITS 2000"},{"parrain":"Molière dit le Philanthrope","filleul":"GARGANTUA"},{"parrain":"Molière dit le Philanthrope","filleul":"Maître Lupin"},{"parrain":"Coq au Vin","filleul":"Black Swan"},{"parrain":"Tropopulsé²","filleul":"De Bovary"},{"parrain":"Pendragon","filleul":"Nosferatu"},{"parrain":"Atlantis","filleul":"L'Affranchie"},{"parrain":"Atlantis","filleul":"Le Soliste"},{"parrain":"Maître Lupin","filleul":"Inari Le Mélodieux"},{"parrain":"Maître Lupin","filleul":"ARTEMISIA"},{"parrain":"Tom Sawyer","filleul":"Lady Gloops"},{"parrain":"RATAT'HOUILLE","filleul":"Hermès"},{"parrain":"Dionysos","filleul":"La CASTAFIOR"},{"parrain":"BoB","filleul":"PLOT TWIST"},{"parrain":"Rabbit","filleul":"Assurancetourix"},{"parrain":"Rabbit","filleul":"Noisette"},{"parrain":"Assurancetourix","filleul":"SodoMikiBit"},{"parrain":"Talc","filleul":"Palpac"},{"parrain":"SodoMikiBit","filleul":"Nemo"},{"parrain":"SodoMikiBit","filleul":"Bugs"},{"parrain":"SodoMikiBit","filleul":"Chop fusion"},{"parrain":"SodoMikiBit","filleul":"Carie"},{"parrain":"Nemo","filleul":"T-toi-clak"},{"parrain":"Nemo","filleul":"Benoit XVI64"},{"parrain":"Nemo","filleul":"Bugs"},{"parrain":"Nemo","filleul":"Lapin's"},{"parrain":"Tiroux","filleul":"Batbit"},{"parrain":"Batbit","filleul":"Palmbit"},{"parrain":"Batbit","filleul":"Carie"},{"parrain":"Batbit","filleul":"Fervex"},{"parrain":"Batbit","filleul":"Grignette"},{"parrain":"T-toi-clak","filleul":"Shut Pinup"},{"parrain":"Ti Nem","filleul":"Shut Pinup"},{"parrain":"Shut Pinup","filleul":"Fanfoune"},{"parrain":"Chop fusion","filleul":"Lilipute"},{"parrain":"Chop fusion","filleul":"Billy la tortue"},{"parrain":"Chop fusion","filleul":"Gropabo"},{"parrain":"Benoit XVI64","filleul":"CanariBay"},{"parrain":"Benoit XVI64","filleul":"UnivPD"},{"parrain":"Benoit XVI64","filleul":"Grignette"},{"parrain":"Puyobitbit","filleul":"Mikado"},{"parrain":"Mikado","filleul":"Billy la tortue"},{"parrain":"Mikado","filleul":"Gropabo"},{"parrain":"Mikado","filleul":"Lapin's"},{"parrain":"Mikado","filleul":"Zob"},{"parrain":"Mikado","filleul":"Grotounu"},{"parrain":"Geishalope","filleul":"Lilipute"},{"parrain":"Geishalope","filleul":"Djaroule"},{"parrain":"Geishalope","filleul":"Pikashot"},{"parrain":"Geishalope","filleul":"Tom'Boy"},{"parrain":"Lilipute","filleul":"Djaroule"},{"parrain":"Lilipute","filleul":"Archirhum"},{"parrain":"Lilipute","filleul":"Nenette"},{"parrain":"Billy la tortue","filleul":"Cuni intronisé Buzz the dick"},{"parrain":"Billy la tortue","filleul":"Scandale (PD)"},{"parrain":"Billy la tortue","filleul":"Nikator"},{"parrain":"Gropabo","filleul":"Nenette"},{"parrain":"Gropabo","filleul":"Gaytée"},{"parrain":"Gropabo","filleul":"Pimpal"},{"parrain":"Bridget","filleul":"UnivPD"},{"parrain":"Bridget","filleul":"Mikado"},{"parrain":"UnivPD","filleul":"Krotadpoil intronisé Krokette"},{"parrain":"Carie","filleul":"SodoMolaireMénien"},{"parrain":"Carie","filleul":"Cuni intronisé Buzz the dick"},{"parrain":"Carie","filleul":"Scandale (PD)"},{"parrain":"Carie","filleul":"Nikator"},{"parrain":"Djaroule","filleul":"QueueAnalPlus"},{"parrain":"Fervex","filleul":"Titanus"},{"parrain":"Pikashot","filleul":"Archirhum"},{"parrain":"Pikashot","filleul":"Louis la Brocante"},{"parrain":"Pikashot","filleul":"GI-Joe"},{"parrain":"Lapin's","filleul":"SodoMolaireMénien"},{"parrain":"Lapin's","filleul":"Titanus"},{"parrain":"Lapin's","filleul":"Drugs bunny"},{"parrain":"Archirhum","filleul":"Louis la Brocante"},{"parrain":"Archirhum","filleul":"GI-Joe"},{"parrain":"Archirhum","filleul":"Krotadpoil intronisé Krokette"},{"parrain":"QueueAnalPlus","filleul":"Grat'couille"},{"parrain":"Nenette","filleul":"Minouch"},{"parrain":"Nenette","filleul":"Bonnet M (PD)"},{"parrain":"Nenette","filleul":"Bonnie barre"},{"parrain":"SodoMolaireMénien","filleul":"Scrotum"},{"parrain":"SodoMolaireMénien","filleul":"Cheetah"},{"parrain":"SodoMolaireMénien","filleul":"Mitsouko"},{"parrain":"SodoMolaireMénien","filleul":"Choupinet"},{"parrain":"Zob","filleul":"Minouch"},{"parrain":"Zob","filleul":"Zobiwan Kenobo"},{"parrain":"Zob","filleul":"Pimpal"},{"parrain":"Cuni intronisé Buzz the dick","filleul":"Gromamar"},{"parrain":"Cuni intronisé Buzz the dick","filleul":"Lapin'sette"},{"parrain":"Louis la Brocante","filleul":"Alsace"},{"parrain":"Louis la Brocante","filleul":"A poil"},{"parrain":"Louis la Brocante","filleul":"Bichat'nikov"},{"parrain":"Louis la Brocante","filleul":"Lorie"},{"parrain":"Louis la Brocante","filleul":"highlander"},{"parrain":"Louis la Brocante","filleul":"Toumouna"},{"parrain":"Louis la Brocante","filleul":"Noisette"},{"parrain":"Louis la Brocante","filleul":"Grignette"},{"parrain":"Gaytée","filleul":"Oh OuiOui intronisé Oui oui"},{"parrain":"Gaytée","filleul":"Jessy Star"},{"parrain":"Gaytée","filleul":"Bonnet M (PD)"},{"parrain":"Gaytée","filleul":"Bonnie barre"},{"parrain":"Gaytée","filleul":"2 Mitch 3"},{"parrain":"Gaytée","filleul":"Grat'couille"},{"parrain":"Scandale (PD)","filleul":"Lapin'sette"},{"parrain":"Pimpal","filleul":"Yaklitoris"},{"parrain":"Pimpal","filleul":"Cheetah"},{"parrain":"Pimpal","filleul":"Mitsouko"},{"parrain":"Pimpal","filleul":"Podium"},{"parrain":"Pimpal","filleul":"Jacky"},{"parrain":"Pimpal","filleul":"Japoulette"},{"parrain":"Pimpal","filleul":"Jackyra"},{"parrain":"Pimpal","filleul":"Oh OuiOui intronisé Oui oui"},{"parrain":"Pimpal","filleul":"Jessy Star"},{"parrain":"Pimpal","filleul":"Achibraraccourcix"},{"parrain":"Pimpal","filleul":"Gromamar"},{"parrain":"Minouch","filleul":"Achibraraccourcix"},{"parrain":"Minouch","filleul":"Toumouna"},{"parrain":"Minouch","filleul":"Barbifle"},{"parrain":"GI-Joe","filleul":"Scrotum"},{"parrain":"GI-Joe","filleul":"Podium"},{"parrain":"GI-Joe","filleul":"Tom'Boy"},{"parrain":"GI-Joe","filleul":"JCVD"},{"parrain":"Rosanus","filleul":"Groland"},{"parrain":"Nikator","filleul":"yes we can"},{"parrain":"Oh OuiOui intronisé Oui oui","filleul":"Odeline"},{"parrain":"Jessy Star","filleul":"Weeds seventies"},{"parrain":"Jessy Star","filleul":"Yaklitoris"},{"parrain":"Jessy Star","filleul":"Saloon"},{"parrain":"Jessy Star","filleul":"Fucky Luke"},{"parrain":"Jessy Star","filleul":"A Louis Baba"},{"parrain":"Jessy Star","filleul":"Magic Bel Organal"},{"parrain":"Jessy Star","filleul":"Rhugal Rocket \"hugal\""},{"parrain":"Jessy Star","filleul":"petit goret"},{"parrain":"Jessy Star","filleul":"Mac krakou"},{"parrain":"Krotadpoil intronisé Krokette","filleul":"Rhugal Rocket \"hugal\""},{"parrain":"Krotadpoil intronisé Krokette","filleul":"VomixCube"},{"parrain":"Krotadpoil intronisé Krokette","filleul":"Choupinet"},{"parrain":"Krotadpoil intronisé Krokette","filleul":"Kleenex"},{"parrain":"Krotadpoil intronisé Krokette","filleul":"carlama"},{"parrain":"Krotadpoil intronisé Krokette","filleul":"Alsace"},{"parrain":"Krotadpoil intronisé Krokette","filleul":"Lorie"},{"parrain":"Krotadpoil intronisé Krokette","filleul":"Gunther"},{"parrain":"Krotadpoil intronisé Krokette","filleul":"Jacky"},{"parrain":"Krotadpoil intronisé Krokette","filleul":"Jackyra"},{"parrain":"Achibraraccourcix","filleul":"Saloon"},{"parrain":"Achibraraccourcix","filleul":"A Louis Baba"},{"parrain":"Achibraraccourcix","filleul":"Odeline"},{"parrain":"Achibraraccourcix","filleul":"Sexskiz"},{"parrain":"Achibraraccourcix","filleul":"ZuZu l'impératrice"},{"parrain":"Grat'couille","filleul":"Mallory Weiss"},{"parrain":"Grat'couille","filleul":"Gourdin"},{"parrain":"Scrotum","filleul":"Fucky Luke"},{"parrain":"Scrotum","filleul":"Magic Bel Organal"},{"parrain":"Scrotum","filleul":"Gourdin"},{"parrain":"Scrotum","filleul":"JCVD"},{"parrain":"Scrotum","filleul":"Gunther"},{"parrain":"Scrotum","filleul":"Pachy le Biker de père en fils"},{"parrain":"Scrotum","filleul":"baloo 2.0"},{"parrain":"Yaklitoris","filleul":"2 Mitch 3"},{"parrain":"Yaklitoris","filleul":"baloo 2.0"},{"parrain":"Saloon","filleul":"VomixCube"},{"parrain":"Saloon","filleul":"Bichat'nikov"},{"parrain":"Saloon","filleul":"Barbifle"},{"parrain":"Saloon","filleul":"yes we can"},{"parrain":"Fucky Luke","filleul":"Xou Alarace"},{"parrain":"Fucky Luke","filleul":"A poil"},{"parrain":"Fucky Luke","filleul":"ZuZu l'impératrice"},{"parrain":"Cheetah","filleul":"Bonobo"},{"parrain":"A Louis Baba","filleul":"Bonobo"},{"parrain":"A Louis Baba","filleul":"Pisse-Partout"},{"parrain":"A Louis Baba","filleul":"Mallory Weiss"},{"parrain":"Mitsouko","filleul":"Mawie-Pistil"},{"parrain":"Mitsouko","filleul":"Blond Porc"},{"parrain":"Mitsouko","filleul":"Ptit Swiss"},{"parrain":"Magic Bel Organal","filleul":"Miôm Miam"},{"parrain":"Magic Bel Organal","filleul":"Drugs bunny"},{"parrain":"Magic Bel Organal","filleul":"petit goret"},{"parrain":"2 Mitch 3","filleul":"Mawie-Pistil"},{"parrain":"Gourdin","filleul":"pandore"},{"parrain":"Gourdin","filleul":"Kleenex"},{"parrain":"VomixCube","filleul":"grasspabelle"},{"parrain":"Alsace","filleul":"Sexskiz"},{"parrain":"Alsace","filleul":"pandore"},{"parrain":"Alsace","filleul":"Minitel"},{"parrain":"Alsace","filleul":"baloo 2.0"},{"parrain":"A poil","filleul":"Sammy"},{"parrain":"A poil","filleul":"Xou Alarace"},{"parrain":"Choupinet","filleul":"Anteportas"},{"parrain":"Choupinet","filleul":"appelle moi papa"},{"parrain":"Choupinet","filleul":"Blond Porc"},{"parrain":"Choupinet","filleul":"Toussa des familles"},{"parrain":"Bonobo","filleul":"Blond Porc"},{"parrain":"Bonobo","filleul":"Ptit Swiss"},{"parrain":"Bonobo","filleul":"Fanchon le biker"},{"parrain":"Bonobo","filleul":"Zobiwan Kenobo"},{"parrain":"Bichat'nikov","filleul":"Sammy"},{"parrain":"Bichat'nikov","filleul":"bouing bouing"},{"parrain":"Bichat'nikov","filleul":"Ouarzezette"},{"parrain":"JCVD","filleul":"Fanchon le biker"},{"parrain":"JCVD","filleul":"Rigolo dit le benet"},{"parrain":"Mallory Weiss","filleul":"tigerboobs"},{"parrain":"Mallory Weiss","filleul":"Anteportas"},{"parrain":"Mallory Weiss","filleul":"Fifouzepam des familles"},{"parrain":"Sammy","filleul":"esnemralda"},{"parrain":"Mawie-Pistil","filleul":"comasutra"},{"parrain":"Mawie-Pistil","filleul":"grasspabelle"},{"parrain":"Blond Porc","filleul":"baloo 2.0"},{"parrain":"Blond Porc","filleul":"Grotounu"},{"parrain":"ZuZu l'impératrice","filleul":"Minitel"},{"parrain":"ZuZu l'impératrice","filleul":"Jonah l'Eunuque"},{"parrain":"Gunther","filleul":"Naboléon"},{"parrain":"Xou Alarace","filleul":"Naboléon"},{"parrain":"Rigolo dit le benet","filleul":"Pachy le Biker de père en fils"},{"parrain":"Anteportas","filleul":"esnemralda"},{"parrain":"Anteportas","filleul":"Castrato"},{"parrain":"Anteportas","filleul":"Brun Porc des familles"},{"parrain":"Anteportas","filleul":"Fifouzepam des familles"},{"parrain":"Anteportas","filleul":"Godzahia"},{"parrain":"Ptit Swiss","filleul":"Kinder Surprise"},{"parrain":"Ptit Swiss","filleul":"MarMaCrotte intronisé MarMacCartney"},{"parrain":"Ptit Swiss","filleul":"Kiwicopter/Marmalou 1er"},{"parrain":"pandore","filleul":"LedZeSplif"},{"parrain":"Minitel","filleul":"wikikiwi"},{"parrain":"tigerboobs","filleul":"Ouarzezette"},{"parrain":"Zobiwan Kenobo","filleul":"Kiwicopter/Marmalou 1er"},{"parrain":"Zobiwan Kenobo","filleul":"wikikiwi"},{"parrain":"Zobiwan Kenobo","filleul":"Labouliche"},{"parrain":"Zobiwan Kenobo","filleul":"Leethiase"},{"parrain":"Zobiwan Kenobo","filleul":"Tigraou"},{"parrain":"grasspabelle","filleul":"Japoulette"},{"parrain":"grasspabelle","filleul":"Kinder Surprise"},{"parrain":"yes we can","filleul":"rugbite"},{"parrain":"yes we can","filleul":"Kunderace"},{"parrain":"yes we can","filleul":"Cmdt Couchetôt"},{"parrain":"yes we can","filleul":"Jaco Ergo Sum"},{"parrain":"yes we can","filleul":"Bounty"},{"parrain":"petit goret","filleul":"Rnardinho"},{"parrain":"petit goret","filleul":"LedZeSplif"},{"parrain":"petit goret","filleul":"Mac krakou"},{"parrain":"petit goret","filleul":"Pisse-Partout"},{"parrain":"petit goret","filleul":"KK Maro"},{"parrain":"Grotounu","filleul":"Blond Porc"},{"parrain":"Grotounu","filleul":"Parikea"},{"parrain":"highlander","filleul":"Kunderace"},{"parrain":"highlander","filleul":"Parikea"},{"parrain":"Pachy le Biker de père en fils","filleul":"Jp foufoune"},{"parrain":"Pachy le Biker de père en fils","filleul":"Legaylas le Grand"},{"parrain":"Naboléon","filleul":"Saoul Dural"},{"parrain":"Naboléon","filleul":"Cmdt Couchetôt"},{"parrain":"Kiwicopter/Marmalou 1er","filleul":"Saoul Dural"},{"parrain":"Kiwicopter/Marmalou 1er","filleul":"MarMaCrotte intronisé MarMacCartney"},{"parrain":"Kiwicopter/Marmalou 1er","filleul":"Anthracyclines"},{"parrain":"Kiwicopter/Marmalou 1er","filleul":"Toussa des familles"},{"parrain":"Kiwicopter/Marmalou 1er","filleul":"Brun Porc des familles"},{"parrain":"Kiwicopter/Marmalou 1er","filleul":"Jonah l'Eunuque"},{"parrain":"wikikiwi","filleul":"Jp foufoune"},{"parrain":"wikikiwi","filleul":"Marc Dorfez"},{"parrain":"wikikiwi","filleul":"Thallegoria"},{"parrain":"wikikiwi","filleul":"Nabilash"},{"parrain":"appelle moi papa","filleul":"Arythmie 2.0"},{"parrain":"rubio","filleul":"bouing bouing"},{"parrain":"bouing bouing","filleul":"Beurk intronisée Jeanne Beurk"},{"parrain":"comasutra","filleul":"Legaylas le Grand"},{"parrain":"Japoulette","filleul":"Hamstairdam"},{"parrain":"Japoulette","filleul":"Anthracyclines"},{"parrain":"Japoulette","filleul":"Arythmie 2.0"},{"parrain":"Japoulette","filleul":"Castrato"},{"parrain":"refmo","filleul":"rugbite"},{"parrain":"refmo","filleul":"KK Maro"},{"parrain":"refmo","filleul":"AZYZzz"},{"parrain":"refmo","filleul":"Hodor"},{"parrain":"refmo","filleul":"Rnardinho"},{"parrain":"refmo","filleul":"Mister Hyde"},{"parrain":"Rnardinho","filleul":"Pic 2"},{"parrain":"Rnardinho","filleul":"Maestrator"},{"parrain":"Rnardinho","filleul":"Barjow intronisé René Coty"},{"parrain":"LedZeSplif","filleul":"Eargasm"},{"parrain":"Pisse-Partout","filleul":"Barjow intronisé René Coty"},{"parrain":"Pisse-Partout","filleul":"Beurk intronisée Jeanne Beurk"},{"parrain":"Pisse-Partout","filleul":"Blanche Neige"},{"parrain":"Pisse-Partout","filleul":"Sartreuse"},{"parrain":"Pisse-Partout","filleul":"Leethiase"},{"parrain":"Labouliche","filleul":"Microwgli"},{"parrain":"Kunderace","filleul":"Jaco Ergo Sum"},{"parrain":"Kunderace","filleul":"Marc Dorfez"},{"parrain":"Kunderace","filleul":"Thallegoria"},{"parrain":"Kunderace","filleul":"Pic 2"},{"parrain":"Buzz","filleul":"9 zewo delta"},{"parrain":"9 zewo delta","filleul":"Caliméro"},{"parrain":"Kinder Surprise","filleul":"Blanche Neige"},{"parrain":"Kinder Surprise","filleul":"Caliméro"},{"parrain":"Kinder Surprise","filleul":"Bounty"},{"parrain":"Kinder Surprise","filleul":"AZYZzz"},{"parrain":"KK Maro","filleul":"Nabilash"},{"parrain":"KK Maro","filleul":"Franky de Bergerac"},{"parrain":"KK Maro","filleul":"Maestrator"},{"parrain":"KK Maro","filleul":"Amenorrhix"},{"parrain":"KK Maro","filleul":"Hodor"},{"parrain":"Jackyra","filleul":"Sartreuse"},{"parrain":"Jackyra","filleul":"Amenorrhix"},{"parrain":"Saoul Dural","filleul":"Gwendal le Colosse"},{"parrain":"Saoul Dural","filleul":"Pussyfire"},{"parrain":"Saoul Dural","filleul":"Gazoil n°10"},{"parrain":"Cmdt Couchetôt","filleul":"Gwendal le Colosse"},{"parrain":"Cmdt Couchetôt","filleul":"Super Pulicellum 98"},{"parrain":"Cmdt Couchetôt","filleul":"Pussyfire"},{"parrain":"MarMaCrotte intronisé MarMacCartney","filleul":"MC AlJahGerbrah"},{"parrain":"Ouarzezette","filleul":"Lady Douwdou"},{"parrain":"Barjow intronisé René Coty","filleul":"Tigraou"},{"parrain":"Barjow intronisé René Coty","filleul":"Gazoil n°10"},{"parrain":"Barjow intronisé René Coty","filleul":"A Contrario"},{"parrain":"Barjow intronisé René Coty","filleul":"Sir RoccoSyphillis (rebaptisé Poule)"},{"parrain":"Beurk intronisée Jeanne Beurk","filleul":"Godzahia"},{"parrain":"Parikea","filleul":"MIKObacTER Aureus le V (W)"},{"parrain":"Parikea","filleul":"Zango Unchained"},{"parrain":"Parikea","filleul":"Jocelingot d'or"},{"parrain":"Jaco Ergo Sum","filleul":"Super Pulicellum 98"},{"parrain":"Jaco Ergo Sum","filleul":"Zango Unchained"},{"parrain":"Jaco Ergo Sum","filleul":"RacePoutine"},{"parrain":"Jaco Ergo Sum","filleul":"MegaNasoSchtroumpf"},{"parrain":"Pic 2","filleul":"Ptit Riricard"},{"parrain":"Pic 2","filleul":"Boobs l'éponge"},{"parrain":"Pic 2","filleul":"Microwgli"},{"parrain":"Pic 2","filleul":"B1B6BB"},{"parrain":"Blanche Neige","filleul":"Ay Carambar"},{"parrain":"Blanche Neige","filleul":"Atakscie"},{"parrain":"Blanche Neige","filleul":"Boule de Neige"},{"parrain":"Blanche Neige","filleul":"Afreudite intronisé Hermafreudite"},{"parrain":"Blanche Neige","filleul":"Marly Golmont"},{"parrain":"AZYZzz","filleul":"Mister Hyde"},{"parrain":"AZYZzz","filleul":"Yo L'eau"},{"parrain":"AZYZzz","filleul":"Buzzy"},{"parrain":"AZYZzz","filleul":"Machiavelutro (rebaptisé Machiavel)"},{"parrain":"AZYZzz","filleul":"Tinky Winky"},{"parrain":"Anthracyclines","filleul":"Pupbizarre"},{"parrain":"Castrato","filleul":"Wild Weed OH"},{"parrain":"Tigraou","filleul":"Pupbizarre"},{"parrain":"Tigraou","filleul":"KBdur LaMOUSSter"},{"parrain":"Marc Dorfez","filleul":"Galeski SW intronisé Galelmaleh #SW"},{"parrain":"Marc Dorfez","filleul":"Jocelingot d'or"},{"parrain":"Marc Dorfez","filleul":"B1B6BB"},{"parrain":"Marc Dorfez","filleul":"Monsieur PORC"},{"parrain":"Thallegoria","filleul":"Machiavelutro (rebaptisé Machiavel)"},{"parrain":"Toussa des familles","filleul":"Icterichu des familles"},{"parrain":"Brun Porc des familles","filleul":"Icterichu des familles"},{"parrain":"Brun Porc des familles","filleul":"CleptiSchtroumpfette"},{"parrain":"Brun Porc des familles","filleul":"Woo Khi Kong"},{"parrain":"Fifouzepam des familles","filleul":"MInion MIchtonne intronisée MORFEE 2.0"},{"parrain":"Fifouzepam des familles","filleul":"Gueunocock"},{"parrain":"Godzahia","filleul":"Lady Douwdou"},{"parrain":"Super Pulicellum 98","filleul":"CleptiSchtroumpfette"},{"parrain":"Super Pulicellum 98","filleul":"KBdur LaMOUSSter"},{"parrain":"Super Pulicellum 98","filleul":"Galeski SW intronisé Galelmaleh #SW"},{"parrain":"Gazoil n°10","filleul":"Pablo el Concritador"},{"parrain":"Gazoil n°10","filleul":"Big Bad Wolf"},{"parrain":"Jonah l'Eunuque","filleul":"Pablo el Concritador"},{"parrain":"Jonah l'Eunuque","filleul":"Miss Teigne"},{"parrain":"Maestrator","filleul":"Marly Golmont"},{"parrain":"Maestrator","filleul":"Eargasm"},{"parrain":"Maestrator","filleul":"BeaulOSS117"},{"parrain":"Maestrator","filleul":"Ptit Riricard"},{"parrain":"Maestrator","filleul":"RacePoutine"},{"parrain":"Maestrator","filleul":"Little Mix Sunshine"},{"parrain":"Maestrator","filleul":"B.O.V.N.I."},{"parrain":"Nabilash","filleul":"Afreudite intronisé Hermafreudite"},{"parrain":"Nabilash","filleul":"Buzzy"},{"parrain":"Caliméro","filleul":"GalactophoCRIT intronisé Rouxcarnage"},{"parrain":"Zango Unchained","filleul":"Big Bad Wolf"},{"parrain":"Zango Unchained","filleul":"Don B2OBS"},{"parrain":"Sartreuse","filleul":"Woo Khi Kong"},{"parrain":"Sartreuse","filleul":"My Little Kraken"},{"parrain":"Ptit Riricard","filleul":"MegaNasoSchtroumpf"},{"parrain":"Ptit Riricard","filleul":"BeaulOSS117"},{"parrain":"Ptit Riricard","filleul":"GalactophoCRIT intronisé Rouxcarnage"},{"parrain":"Ptit Riricard","filleul":"Hamtarée"},{"parrain":"Boobs l'éponge","filleul":"Ay Carambar"},{"parrain":"Amenorrhix","filleul":"Kiss en foutre"},{"parrain":"Amenorrhix","filleul":"Don B2OBS"},{"parrain":"Amenorrhix","filleul":"Tinky Winky"},{"parrain":"Amenorrhix","filleul":"Little Mix Sunshine"},{"parrain":"Hodor","filleul":"Hamtarée"},{"parrain":"Hodor","filleul":"Chewbawax"},{"parrain":"Galeski SW intronisé Galelmaleh #SW","filleul":"Alcaline"},{"parrain":"Lady Douwdou","filleul":"Korsakoff"},{"parrain":"Lady Douwdou","filleul":"Kiss en foutre"},{"parrain":"Lady Douwdou","filleul":"MC AlJahGerbrah"},{"parrain":"Lady Douwdou","filleul":"Yo L'eau"},{"parrain":"Lady Douwdou","filleul":"Belzépute"},{"parrain":"Lady Douwdou","filleul":"Maratkiri"},{"parrain":"Lady Douwdou","filleul":"Duper Bi'ZHard"},{"parrain":"Lady Douwdou","filleul":"Cerebrow"},{"parrain":"RacePoutine","filleul":"Belzépute"},{"parrain":"RacePoutine","filleul":"Ultrash"},{"parrain":"RacePoutine","filleul":"Korsakoff"},{"parrain":"RacePoutine","filleul":"Sir RoccoSyphillis (rebaptisé Poule)"},{"parrain":"RacePoutine","filleul":"Wild Weed OH"},{"parrain":"Jocelingot d'or","filleul":"MInion MIchtonne intronisée MORFEE 2.0"},{"parrain":"Pupbizarre","filleul":"Gueunocock"},{"parrain":"Pupbizarre","filleul":"MIKObacTER Aureus le V (W)"},{"parrain":"Icterichu des familles","filleul":"MaximaThor"},{"parrain":"Afreudite intronisé Hermafreudite","filleul":"A Contrario"},{"parrain":"Marly Golmont","filleul":"Hot Dogg"},{"parrain":"Marly Golmont","filleul":"MaximaThor"},{"parrain":"Marly Golmont","filleul":"Kiss Cool"},{"parrain":"Mister Hyde","filleul":"Diva Von Tiz"},{"parrain":"Mister Hyde","filleul":"Sherloque"},{"parrain":"Mister Hyde","filleul":"Nausicaä"},{"parrain":"Mister Hyde","filleul":"Hot Dogg"},{"parrain":"Mister Hyde","filleul":"Gorée Mifa"},{"parrain":"Mister Hyde","filleul":"Franky de Bergerac"},{"parrain":"Mister Hyde","filleul":"Doc Gigolo"},{"parrain":"Buzzy","filleul":"Philundera (rebaptisé Kasanova)"},{"parrain":"Buzzy","filleul":"Dynamite"},{"parrain":"Machiavelutro (rebaptisé Machiavel)","filleul":"Gorée Mifa"},{"parrain":"Machiavelutro (rebaptisé Machiavel)","filleul":"Oups"},{"parrain":"Eargasm","filleul":"B.O.V.N.I."},{"parrain":"Eargasm","filleul":"Maratkiri"},{"parrain":"Eargasm","filleul":"Wallabeer intronisée Kickasse"},{"parrain":"Big Bad Wolf","filleul":"zitOH'TISTE"},{"parrain":"Kiss en foutre","filleul":"Pussy Dark Doll"},{"parrain":"Kiss en foutre","filleul":"Nekophylaxie"},{"parrain":"Kiss en foutre","filleul":"Fumseck"},{"parrain":"Don B2OBS","filleul":"Ch'tyran"},{"parrain":"Tinky Winky","filleul":"Diva Von Tiz"},{"parrain":"Tinky Winky","filleul":"Wallabeer intronisée Kickasse"},{"parrain":"MC AlJahGerbrah","filleul":"zitOH'TISTE"},{"parrain":"MC AlJahGerbrah","filleul":"Dory"},{"parrain":"MC AlJahGerbrah","filleul":"VeaumichtON"},{"parrain":"Little Mix Sunshine","filleul":"Bibidi Bobidi Bou"},{"parrain":"Little Mix Sunshine","filleul":"Little Big Witch"},{"parrain":"Little Mix Sunshine","filleul":"Chewbawax"},{"parrain":"Little Mix Sunshine","filleul":"My Little Kraken"},{"parrain":"Little Mix Sunshine","filleul":"Better Rave"},{"parrain":"MegaNasoSchtroumpf","filleul":"Ventcomimi"},{"parrain":"BeaulOSS117","filleul":"Kiss Cool"},{"parrain":"BeaulOSS117","filleul":"Breaking Bed (rebaptise 2.0 G)"},{"parrain":"GalactophoCRIT intronisé Rouxcarnage","filleul":"Spicy Kirby"},{"parrain":"Hamtarée","filleul":"Atakscie"},{"parrain":"Hamtarée","filleul":"Oups"},{"parrain":"Hamtarée","filleul":"Cuicuite"},{"parrain":"Woo Khi Kong","filleul":"Technu intronisé Indus 2000"},{"parrain":"Woo Khi Kong","filleul":"Cerebrow"},{"parrain":"Woo Khi Kong","filleul":"Alcaline"},{"parrain":"Korsakoff","filleul":"Pussy Dark Doll"},{"parrain":"Korsakoff","filleul":"Bibidi Bobidi Bou"},{"parrain":"Korsakoff","filleul":"Sherloque"},{"parrain":"B1B6BB","filleul":"Miss Teigne"},{"parrain":"B1B6BB","filleul":"Nekophylaxie"},{"parrain":"B1B6BB","filleul":"Philundera (rebaptisé Kasanova)"},{"parrain":"MInion MIchtonne intronisée MORFEE 2.0","filleul":"Monsieur PORC"},{"parrain":"MInion MIchtonne intronisée MORFEE 2.0","filleul":"Boule de Neige"},{"parrain":"MInion MIchtonne intronisée MORFEE 2.0","filleul":"Ultrash"},{"parrain":"MInion MIchtonne intronisée MORFEE 2.0","filleul":"Fumseck"},{"parrain":"MInion MIchtonne intronisée MORFEE 2.0","filleul":"Super Smash 2"},{"parrain":"B.O.V.N.I.","filleul":"Duper Bi'ZHard"},{"parrain":"B.O.V.N.I.","filleul":"Cogito Velcro Saoul"},{"parrain":"MIKObacTER Aureus le V (W)","filleul":"Better Rave"},{"parrain":"MIKObacTER Aureus le V (W)","filleul":"Cogito Velcro Saoul"},{"parrain":"Hot Dogg","filleul":"Breaking Bed (rebaptise 2.0 G)"},{"parrain":"Hot Dogg","filleul":"Baby Boss"},{"parrain":"Hot Dogg","filleul":"Simplet"},{"parrain":"Hot Dogg","filleul":"Neville"},{"parrain":"Hot Dogg","filleul":"Technu intronisé Indus 2000"},{"parrain":"Gorée Mifa","filleul":"Doudoushka"},{"parrain":"Gorée Mifa","filleul":"Fée Clocharde"},{"parrain":"Gorée Mifa","filleul":"Big Ben"},{"parrain":"Chewbawax","filleul":"Fée Clocharde"},{"parrain":"Atakscie","filleul":"Ventcomimi"},{"parrain":"Atakscie","filleul":"La Bête"},{"parrain":"Atakscie","filleul":"Sôjasun intronisée Scarface"},{"parrain":"Atakscie","filleul":"Désenchantée (rebaptisée jamais 203)"},{"parrain":"Belzépute","filleul":"Cuicuite"},{"parrain":"Belzépute","filleul":"Sister Act intronisée XVI"},{"parrain":"Belzépute","filleul":"Sôjasun intronisée Scarface"},{"parrain":"My Little Kraken","filleul":"Little Big Witch"},{"parrain":"Diva Von Tiz","filleul":"CREEPuscule 2.0"},{"parrain":"Diva Von Tiz","filleul":"Dynamite"},{"parrain":"Diva Von Tiz","filleul":"Dory"},{"parrain":"Diva Von Tiz","filleul":"Baby Boss"},{"parrain":"Diva Von Tiz","filleul":"No Woman No Cry"},{"parrain":"Maratkiri","filleul":"Doc Gigolo"},{"parrain":"Maratkiri","filleul":"Pikassos"},{"parrain":"Maratkiri","filleul":"Doudoushka"},{"parrain":"Sir RoccoSyphillis (rebaptisé Poule)","filleul":"Hippocrade"},{"parrain":"Sir RoccoSyphillis (rebaptisé Poule)","filleul":"Jamy Neuneutron"},{"parrain":"Sir RoccoSyphillis (rebaptisé Poule)","filleul":"Super Smash 2"},{"parrain":"Sir RoccoSyphillis (rebaptisé Poule)","filleul":"Phigaro"},{"parrain":"Sir RoccoSyphillis (rebaptisé Poule)","filleul":"Shy Twinks"},{"parrain":"MaximaThor","filleul":"La Bête"},{"parrain":"MaximaThor","filleul":"Bern is on fire"},{"parrain":"MaximaThor","filleul":"Franck Rhétorique"},{"parrain":"Kiss Cool","filleul":"Glassgow"},{"parrain":"Kiss Cool","filleul":"VeaumichtON"},{"parrain":"Kiss Cool","filleul":"Shy Twinks"},{"parrain":"Pussy Dark Doll","filleul":"Mellowtopia"},{"parrain":"Pussy Dark Doll","filleul":"TiramiSaoul"},{"parrain":"Wild Weed OH","filleul":"Misstitch"},{"parrain":"Wild Weed OH","filleul":"Simplet"},{"parrain":"Monsieur PORC","filleul":"Rantanplan"},{"parrain":"Oups","filleul":"Nymphé Ah!"},{"parrain":"Oups","filleul":"Mimi Cracra"},{"parrain":"Oups","filleul":"CheerGlitter"},{"parrain":"Alcaline","filleul":"Mellowtopia"},{"parrain":"Alcaline","filleul":"Ch'tyran"},{"parrain":"Alcaline","filleul":"Gazèle"},{"parrain":"Miss Teigne","filleul":"Merlin"},{"parrain":"Miss Teigne","filleul":"Colonel Moutarde"},{"parrain":"Miss Teigne","filleul":"Crazy Frog"},{"parrain":"Nekophylaxie","filleul":"Memy Kravitz"},{"parrain":"Nekophylaxie","filleul":"KickCat"},{"parrain":"Bibidi Bobidi Bou","filleul":"Spicy Kirby"},{"parrain":"Bibidi Bobidi Bou","filleul":"Bern is on fire"},{"parrain":"Bibidi Bobidi Bou","filleul":"CREEPuscule 2.0"},{"parrain":"zitOH'TISTE","filleul":"Glassgow"},{"parrain":"Boule de Neige","filleul":"Crazy Frog"},{"parrain":"Boule de Neige","filleul":"KickCat"},{"parrain":"Boule de Neige","filleul":"AK-40PET"},{"parrain":"Boule de Neige","filleul":"Pikassos"},{"parrain":"Ultrash","filleul":"Dumb Bobow (rebaptisée Dumbolost)"},{"parrain":"Ultrash","filleul":"No Woman No Cry"},{"parrain":"Ultrash","filleul":"Ragnarock"},{"parrain":"Ultrash","filleul":"Désenchantée (rebaptisée jamais 203)"},{"parrain":"Technu intronisé Indus 2000","filleul":"Franck Rhétorique"},{"parrain":"Technu intronisé Indus 2000","filleul":"Pastaga"},{"parrain":"Technu intronisé Indus 2000","filleul":"Peter Paon intronisé CRAZY HOErse"},{"parrain":"Fumseck","filleul":"Tarpé Diem"},{"parrain":"Fumseck","filleul":"TiramiSaoul"},{"parrain":"Fumseck","filleul":"Doctopus"},{"parrain":"Fumseck","filleul":"Pastaga"},{"parrain":"Duper Bi'ZHard","filleul":"Misstitch"},{"parrain":"Duper Bi'ZHard","filleul":"Pépite"},{"parrain":"Duper Bi'ZHard","filleul":"Tarpé Diem"},{"parrain":"Duper Bi'ZHard","filleul":"Big Ben"},{"parrain":"Cerebrow","filleul":"AK-40PET"},{"parrain":"Cerebrow","filleul":"Memy Kravitz"},{"parrain":"Cerebrow","filleul":"Lanceleau"},{"parrain":"Cerebrow","filleul":"Neville"},{"parrain":"Better Rave","filleul":"Dumb Bobow (rebaptisée Dumbolost)"},{"parrain":"Better Rave","filleul":"Sister Act intronisée XVI"},{"parrain":"Cogito Velcro Saoul","filleul":"Gazèle"},{"parrain":"Cogito Velcro Saoul","filleul":"Blanche de Kastilleuh"},{"parrain":"Cogito Velcro Saoul","filleul":"Colonel Moutarde"},{"parrain":"Doudoushka","filleul":"Tom Sawyer"},{"parrain":"Doudoushka","filleul":"Queen Bi"},{"parrain":"Doudoushka","filleul":"Racemoket"},{"parrain":"Fée Clocharde","filleul":"Falcon Punch"},{"parrain":"Fée Clocharde","filleul":"Tom Sawyer"},{"parrain":"Sherloque","filleul":"Mimi Cracra"},{"parrain":"Breaking Bed (rebaptise 2.0 G)","filleul":"CheerGlitter"},{"parrain":"Doc Gigolo","filleul":"Why So Sirius?"},{"parrain":"Doc Gigolo","filleul":"Hippocrade"},{"parrain":"Doc Gigolo","filleul":"Nitrogena"},{"parrain":"Doc Gigolo","filleul":"_"},{"parrain":"Doc Gigolo","filleul":"Bad Tripes"},{"parrain":"Spicy Kirby","filleul":"Nymphé Ah!"},{"parrain":"Spicy Kirby","filleul":"Rantanplan"},{"parrain":"Spicy Kirby","filleul":"Angry Groot"},{"parrain":"Spicy Kirby","filleul":"Peter Paon intronisé CRAZY HOErse"},{"parrain":"Philundera (rebaptisé Kasanova)","filleul":"Choucroute"},{"parrain":"Philundera (rebaptisé Kasanova)","filleul":"Simone de BauxDrame"},{"parrain":"Philundera (rebaptisé Kasanova)","filleul":"Blanche de Kastilleuh"},{"parrain":"Dynamite","filleul":"Arty Rainbow"},{"parrain":"Dynamite","filleul":"Ragnarock"},{"parrain":"Dory","filleul":"Talky Wookie"},{"parrain":"Dory","filleul":"Jamy Neuneutron"},{"parrain":"Merlin","filleul":"Choucroute"},{"parrain":"Merlin","filleul":"Pépite"},{"parrain":"Cuicuite","filleul":"Flopazepam.e.s"},{"parrain":"Ch'tyran","filleul":"Iron Moon"},{"parrain":"La Bête","filleul":"Queen Bi"},{"parrain":"La Bête","filleul":"Firefly"},{"parrain":"La Bête","filleul":"The Little Mermed"},{"parrain":"Glassgow","filleul":"Iron Moon"},{"parrain":"Glassgow","filleul":"Simone de BauxDrame"},{"parrain":"VeaumichtON","filleul":"Arty Rainbow"},{"parrain":"Little Big Witch","filleul":"Darkstiny's Chiild intronisée Dalaï Mama"},{"parrain":"Mellowtopia","filleul":"Why So Sirius?"},{"parrain":"Mellowtopia","filleul":"Falcon Punch"},{"parrain":"Bern is on fire","filleul":"Racemoket"},{"parrain":"CREEPuscule 2.0","filleul":"Darkstiny's Chiild intronisée Dalaï Mama"},{"parrain":"CREEPuscule 2.0","filleul":"Nitrogena"},{"parrain":"CREEPuscule 2.0","filleul":"Gizmo"},{"parrain":"CREEPuscule 2.0","filleul":"ACAB"},{"parrain":"Shy Twinks","filleul":"RATAT'HOUILLE"},{"parrain":"Franck Rhétorique","filleul":"Flopazepam.e.s"},{"parrain":"Franck Rhétorique","filleul":"$hit $ale"},{"parrain":"Franck Rhétorique","filleul":"Action Man"},{"parrain":"Dumb Bobow (rebaptisée Dumbolost)","filleul":"MAWY Trez"},{"parrain":"Dumb Bobow (rebaptisée Dumbolost)","filleul":"Doctopus"},{"parrain":"Dumb Bobow (rebaptisée Dumbolost)","filleul":"Sans Plomb 98 intronisé Kim Jong WeeD"},{"parrain":"Sister Act intronisée XVI","filleul":"MAWY Trez"},{"parrain":"Sister Act intronisée XVI","filleul":"Avrell"},{"parrain":"AK-40PET","filleul":"Psychokwak"},{"parrain":"AK-40PET","filleul":"Pippin de la Comté"},{"parrain":"AK-40PET","filleul":"Maextröm"},{"parrain":"Pastaga","filleul":"Firefly"},{"parrain":"Pastaga","filleul":"Lanceleau"},{"parrain":"Pastaga","filleul":"BawdygHARD"},{"parrain":"Baby Boss","filleul":"TrepA(l)Yamimi"},{"parrain":"Baby Boss","filleul":"Hoteigne"},{"parrain":"Baby Boss","filleul":"Tropopulsé²"},{"parrain":"Mimi Cracra","filleul":"Gizmo"},{"parrain":"Mimi Cracra","filleul":"Panpan"},{"parrain":"Crazy Frog","filleul":"Angry Groot"},{"parrain":"Crazy Frog","filleul":"BoB"},{"parrain":"Misstitch","filleul":"Maextröm"},{"parrain":"Misstitch","filleul":"Panpan"},{"parrain":"Misstitch","filleul":"Nausicaä"},{"parrain":"Misstitch","filleul":"Calcifer"},{"parrain":"Simplet","filleul":"Banana Spliff"},{"parrain":"Simplet","filleul":"Hoteigne"},{"parrain":"Simplet","filleul":"Saoul le vent"},{"parrain":"Tarpé Diem","filleul":"Bienvenue"},{"parrain":"Tarpé Diem","filleul":"_"},{"parrain":"Hippocrade","filleul":"TrepA(l)Yamimi"},{"parrain":"Hippocrade","filleul":"Bienvenue"},{"parrain":"Hippocrade","filleul":"Psychokwak"},{"parrain":"Hippocrade","filleul":"Coq au Vin"},{"parrain":"Memy Kravitz","filleul":"Suolaalala"},{"parrain":"Memy Kravitz","filleul":"Dionysos"},{"parrain":"Nymphé Ah!","filleul":"BawdygHARD"},{"parrain":"Nymphé Ah!","filleul":"Shooting Star"},{"parrain":"Sôjasun intronisée Scarface","filleul":"Golden Maler"},{"parrain":"Gazèle","filleul":"Baby Dohll"},{"parrain":"CheerGlitter","filleul":"Mike Drup"},{"parrain":"CheerGlitter","filleul":"Phare-À-On"},{"parrain":"CheerGlitter","filleul":"Tropopulsé²"},{"parrain":"Arty Rainbow","filleul":"Lumos"},{"parrain":"Queen Bi","filleul":"Shooting Star"},{"parrain":"Queen Bi","filleul":"BoB"},{"parrain":"Why So Sirius?","filleul":"Talky Wookie"},{"parrain":"Pikassos","filleul":"Phigaro"},{"parrain":"Big Ben","filleul":"Calcifer"},{"parrain":"Big Ben","filleul":"24-carats"},{"parrain":"Rantanplan","filleul":"Saoul le vent"},{"parrain":"Rantanplan","filleul":"Mozzabella"},{"parrain":"Jamy Neuneutron","filleul":"Lumos"},{"parrain":"Jamy Neuneutron","filleul":"24-carats"},{"parrain":"Racemoket","filleul":"Marie Antoinette"},{"parrain":"Racemoket","filleul":"Suolaalala"},{"parrain":"TiramiSaoul","filleul":"Sans Plomb 98 intronisé Kim Jong WeeD"},{"parrain":"TiramiSaoul","filleul":"Banana Spliff"},{"parrain":"TiramiSaoul","filleul":"Avrell"},{"parrain":"Darkstiny's Chiild intronisée Dalaï Mama","filleul":"Baby Dohll"},{"parrain":"Colonel Moutarde","filleul":"ProméthiS"},{"parrain":"Colonel Moutarde","filleul":"Pippin de la Comté"},{"parrain":"KickCat","filleul":"Havana moana"},{"parrain":"KickCat","filleul":"Nutz"},{"parrain":"KickCat","filleul":"Peekaboo"},{"parrain":"Angry Groot","filleul":"Peekaboo"},{"parrain":"Angry Groot","filleul":"Sicindy 1ère"},{"parrain":"Ragnarock","filleul":"Barjorak"},{"parrain":"Ragnarock","filleul":"Sicindy 1ère"},{"parrain":"Bienvenue","filleul":"Jus d'orange"},{"parrain":"Bienvenue","filleul":"HUBERT HITS 2000"},{"parrain":"Bienvenue","filleul":"ACAB"},{"parrain":"Suolaalala","filleul":"Jus d'orange"},{"parrain":"_","filleul":"Coq au Vin"},{"parrain":"Blanche de Kastilleuh","filleul":"Axolotl"},{"parrain":"Blanche de Kastilleuh","filleul":"Robin des Bois intronisé Liber Pater"},{"parrain":"Phigaro","filleul":"Action Man"},{"parrain":"Phigaro","filleul":"Dionysos"},{"parrain":"Hiatus","filleul":"Bad Tripes"},{"parrain":"Hiatus","filleul":"Axolotl"},{"parrain":"Psychokwak","filleul":"Havana moana"},{"parrain":"Blablacaf","filleul":"Psychee"},{"parrain":"Guizmo","filleul":"RATAT'HOUILLE"},{"parrain":"Boudchou","filleul":"SodoMikiBit"},{"parrain":"Christelle (1e necker)","filleul":"Oscar"},{"parrain":"Oscar","filleul":"Nemo"},{"parrain":"Emilie","filleul":"Batbit"},{"parrain":"Laura (SA)","filleul":"Anustella"},{"parrain":"Anustella","filleul":"Benoit XVI64"},{"parrain":"Castagnette","filleul":"Chop fusion"},{"parrain":"Bérénice(pité)","filleul":"Palmbit"},{"parrain":"Fanfoune","filleul":"Gaytée"},{"parrain":"Blackpouf","filleul":"Fervex"},{"parrain":"Blackpouf","filleul":"highlander"},{"parrain":"Ratafiotte","filleul":"Pikashot"},{"parrain":"Kralotte","filleul":"QueueAnalPlus"},{"parrain":"Panthéon","filleul":"CanariBay"},{"parrain":"Miki","filleul":"Zob"},{"parrain":"Aphroby","filleul":"Groland"},{"parrain":"Hugal","filleul":"Miôm Miam"},{"parrain":"KB","filleul":"Weeds seventies"},{"parrain":"Neness","filleul":"Rigolo dit le benet"},{"parrain":"cry hot (satin de lyon)","filleul":"refmo"},{"parrain":"delpoutre","filleul":"9 zewo delta"},{"parrain":"PSA (Colonel Castor GM)","filleul":"Hamstairdam"},{"parrain":"Amstairdam","filleul":"Boobs l'éponge"},{"parrain":"Bobo (Bezak)","filleul":"Tonktonk"},{"parrain":"Tonktonk","filleul":"Ibu"},{"parrain":"Tonktonk","filleul":"Poney"},{"parrain":"Tonktonk","filleul":"Premat"},{"parrain":"Tonktonk","filleul":"Walex"},{"parrain":"Tonktonk","filleul":"Sainte-Anne"},{"parrain":"Lolita","filleul":"Brindille"},{"parrain":"Lolita","filleul":"Hermione"},{"parrain":"Brindille","filleul":"Poney"},{"parrain":"Ibu","filleul":"Pingui"},{"parrain":"Ibu","filleul":"Gollum"},{"parrain":"Ibu","filleul":"Souchon"},{"parrain":"Ibu","filleul":"Bambit, confirmé Klodo"},{"parrain":"Ibu","filleul":"Biscotte"},{"parrain":"Ibu","filleul":"Nicklure"},{"parrain":"Pingui","filleul":"Souchon"},{"parrain":"Duracell","filleul":"Branli"},{"parrain":"Poney","filleul":"Hermione"},{"parrain":"Poney","filleul":"Broly"},{"parrain":"Poney","filleul":"Jean Guy George De La Cruche"},{"parrain":"Souchon","filleul":"Rital"},{"parrain":"Souchon","filleul":"Mamouna"},{"parrain":"Souchon","filleul":"La Trouille"},{"parrain":"Souchon","filleul":"Fwere"},{"parrain":"Souchon","filleul":"Premat"},{"parrain":"Souchon","filleul":"Walex"},{"parrain":"Bambit, confirmé Klodo","filleul":"KKTwist"},{"parrain":"Bambit, confirmé Klodo","filleul":"Biscotte"},{"parrain":"Bambit, confirmé Klodo","filleul":"Van Hool"},{"parrain":"Bambit, confirmé Klodo","filleul":"La Mèche"},{"parrain":"Bambit, confirmé Klodo","filleul":"CI Mammouth"},{"parrain":"Hermione","filleul":"Rital"},{"parrain":"Hermione","filleul":"L'Ingénue (Armelle)"},{"parrain":"Hermione","filleul":"Sainte-Anne"},{"parrain":"Premat","filleul":"Jean Guy George De La Cruche"},{"parrain":"Premat","filleul":"Mini Foie"},{"parrain":"Walex","filleul":"Nicklure"},{"parrain":"Walex","filleul":"CI Mammouth"},{"parrain":"Walex","filleul":"L'Ingénue (Armelle)"},{"parrain":"Walex","filleul":"Gavroche"},{"parrain":"Walex","filleul":"Jokeur"},{"parrain":"Walex","filleul":"Schumacher"},{"parrain":"Walex","filleul":"Schtroumpfette"},{"parrain":"Walex","filleul":"Fwere"},{"parrain":"Broly","filleul":"L'Ours"},{"parrain":"Broly","filleul":"Nationale 7"},{"parrain":"Rital","filleul":"Schumacher"},{"parrain":"Rital","filleul":"Brutal"},{"parrain":"Rital","filleul":"Duchesse"},{"parrain":"Rital","filleul":"La Mèche"},{"parrain":"Rital","filleul":"La Trouille"},{"parrain":"Biscotte","filleul":"La Débrouille"},{"parrain":"Biscotte","filleul":"Jean Poulet du Pilon"},{"parrain":"Biscotte","filleul":"Van Hool"},{"parrain":"Biscotte","filleul":"L'Ours"},{"parrain":"Nicklure","filleul":"Bonnet M (Bichat)"},{"parrain":"Nicklure","filleul":"Cisplatine"},{"parrain":"Nicklure","filleul":"Soviet"},{"parrain":"Nicklure","filleul":"Jean Poulet du Pilon"},{"parrain":"Nicklure","filleul":"Macquard"},{"parrain":"Polype","filleul":"Nationale 7"},{"parrain":"Jean Guy George De La Cruche","filleul":"Schtroumpfette"},{"parrain":"Mr B","filleul":"Mini Foie"},{"parrain":"Mr B","filleul":"Soviet"},{"parrain":"Mr B","filleul":"Nickel de Limoges"},{"parrain":"Mr B","filleul":"Pingui"},{"parrain":"Mr B","filleul":"Broly"},{"parrain":"Mini Foie","filleul":"La Débrouille"},{"parrain":"Mini Foie","filleul":"Gavroche"},{"parrain":"Van Hool","filleul":"Macquard"},{"parrain":"Van Hool","filleul":"Brutal"},{"parrain":"Soviet","filleul":"Rougeon"},{"parrain":"Soviet","filleul":"Le Bouc"},{"parrain":"La Mèche","filleul":"Cisplatine"},{"parrain":"La Débrouille","filleul":"Rougeon"},{"parrain":"Schumacher","filleul":"Jean Benêt de la Fête"},{"parrain":"Schumacher","filleul":"Perceval"},{"parrain":"Schumacher","filleul":"Punkachat"},{"parrain":"Schumacher","filleul":"Nymphéa"},{"parrain":"Schumacher","filleul":"Dori"},{"parrain":"Schumacher","filleul":"Pantagruel"},{"parrain":"Schumacher","filleul":"Valmont"},{"parrain":"Nickel de Limoges","filleul":"Mamouna"},{"parrain":"Jean Poulet du Pilon","filleul":"Rafal"},{"parrain":"Jean Poulet du Pilon","filleul":"Jokeur"},{"parrain":"Jean Poulet du Pilon","filleul":"Dr Jekyll"},{"parrain":"Rougeon","filleul":"Toxique"},{"parrain":"Schtroumpfette","filleul":"Pantagruel"},{"parrain":"Gavroche","filleul":"Le Bouc"},{"parrain":"Gavroche","filleul":"Jean Benêt de la Fête"},{"parrain":"Sainte-Anne","filleul":"Valmont"},{"parrain":"Sainte-Anne","filleul":"Anna Karénine"},{"parrain":"Sainte-Anne","filleul":"Calamity Jane"},{"parrain":"Sainte-Anne","filleul":"Toxique"},{"parrain":"Brutal","filleul":"La Bayadère"},{"parrain":"Brutal","filleul":"Cortex"},{"parrain":"Brutal","filleul":"L'Exorciste"},{"parrain":"Brutal","filleul":"Fatal"},{"parrain":"Grincheux","filleul":"Calamity Jane"},{"parrain":"Grincheux","filleul":"L'Exorciste"},{"parrain":"Grincheux","filleul":"Nickel de Limoges"},{"parrain":"Grincheux","filleul":"Cendrillon"},{"parrain":"Calamity Jane","filleul":"Cendrillon"},{"parrain":"Calamity Jane","filleul":"Phoenix"},{"parrain":"La Trouille","filleul":"Duchesse"},{"parrain":"Cisplatine","filleul":"Ritaline"},{"parrain":"Cisplatine","filleul":"Perceval"},{"parrain":"Pantagruel","filleul":"Phoenix"},{"parrain":"Pantagruel","filleul":"Punkachat"},{"parrain":"Pantagruel","filleul":"Esmeralda"},{"parrain":"Pantagruel","filleul":"Gaston"},{"parrain":"Jokeur","filleul":"Arlequine"},{"parrain":"Jokeur","filleul":"Thor"},{"parrain":"Jokeur","filleul":"Mr Hyde"},{"parrain":"Jokeur","filleul":"Cortex"},{"parrain":"Jean Benêt de la Fête","filleul":"Dr Jekyll"},{"parrain":"Jean Benêt de la Fête","filleul":"Nymphéa"},{"parrain":"Jean Benêt de la Fête","filleul":"Dori"},{"parrain":"L'Exorciste","filleul":"Anna Karénine"},{"parrain":"L'Exorciste","filleul":"Thor"},{"parrain":"L'Exorciste","filleul":"Frère Frakass"},{"parrain":"Cendrillon","filleul":"Bonnemine"},{"parrain":"Cendrillon","filleul":"La Bayadère"},{"parrain":"Duchesse","filleul":"Esmeralda"},{"parrain":"Duchesse","filleul":"George"},{"parrain":"Duchesse","filleul":"Hippodium"},{"parrain":"Duchesse","filleul":"Arlequine"},{"parrain":"Duchesse","filleul":"Lady Cash"},{"parrain":"Valmont","filleul":"Lady Cash"},{"parrain":"Valmont","filleul":"Jean Vaillant de Volange"},{"parrain":"Valmont","filleul":"Bonnemine"},{"parrain":"Perceval","filleul":"Jean Vaillant de Volange"},{"parrain":"Rafal","filleul":"Ritaline"},{"parrain":"Punkachat","filleul":"Econominette"},{"parrain":"Punkachat","filleul":"Boostiflor"},{"parrain":"Esmeralda","filleul":"Fatal"},{"parrain":"Esmeralda","filleul":"La Gaudriole"},{"parrain":"Dori","filleul":"Econominette"},{"parrain":"Dori","filleul":"Hippodium"},{"parrain":"Anna Karénine","filleul":"Mr Hyde"},{"parrain":"Dr Jekyll","filleul":"Don Juan de l'Arsouille"},{"parrain":"Mr Hyde","filleul":"George"},{"parrain":"Mr Hyde","filleul":"Clochette"},{"parrain":"Bonnemine","filleul":"Gaston"},{"parrain":"Bonnemine","filleul":"Sensei"},{"parrain":"Fatal","filleul":"La Gaudriole"},{"parrain":"Fatal","filleul":"Mata Hari"},{"parrain":"Fatal","filleul":"Al Capone 2.0"},{"parrain":"Arlequine","filleul":"Nazdrowje"},{"parrain":"Arlequine","filleul":"L'Ingénue (Julia)"},{"parrain":"Arlequine","filleul":"Mata Hari"},{"parrain":"Arlequine","filleul":"Gargamelle dite la Brute"},{"parrain":"Lady Cash","filleul":"Frère Frakass"},{"parrain":"Lady Cash","filleul":"Quintal"},{"parrain":"Lady Cash","filleul":"Don Juan de l'Arsouille"},{"parrain":"Lady Cash","filleul":"Bagheera"},{"parrain":"Lady Cash","filleul":"JeanJacqueur de Lion"},{"parrain":"La Bayadère","filleul":"Jean Pierrot de la Cuisse"},{"parrain":"La Bayadère","filleul":"Ponyo"},{"parrain":"La Bayadère","filleul":"L'Oxymore"},{"parrain":"La Bayadère","filleul":"Tony Tony Chopper"},{"parrain":"George","filleul":"Ponyo"},{"parrain":"George","filleul":"Sensei"},{"parrain":"George","filleul":"Morpheus"},{"parrain":"Econominette","filleul":"Clochette"},{"parrain":"Thor","filleul":"Nazdrowje"},{"parrain":"Thor","filleul":"Quintal"},{"parrain":"Thor","filleul":"Goudurix"},{"parrain":"Thor","filleul":"Marilyn"},{"parrain":"Thor","filleul":"Maestro"},{"parrain":"Thor","filleul":"Petit Jean du Grand Gousier"},{"parrain":"La Gaudriole","filleul":"Gosby La Badouille"},{"parrain":"La Gaudriole","filleul":"Ulysse"},{"parrain":"La Gaudriole","filleul":"Nostradamus"},{"parrain":"La Gaudriole","filleul":"L'Ingénue (Julia)"},{"parrain":"La Gaudriole","filleul":"Frontal"},{"parrain":"Cortex","filleul":"Nostradamus"},{"parrain":"Clochette","filleul":"Vénus"},{"parrain":"Clochette","filleul":"Goudurix"},{"parrain":"Clochette","filleul":"Boostiflor"},{"parrain":"Ritaline","filleul":"Morpheus"},{"parrain":"Ritaline","filleul":"Al Capone 2.0"},{"parrain":"Frère Frakass","filleul":"Kick-Ass"},{"parrain":"Frère Frakass","filleul":"Bagheera"},{"parrain":"Frère Frakass","filleul":"JeanJacqueur de Lion"},{"parrain":"Gaston","filleul":"Gosby La Badouille"},{"parrain":"Gaston","filleul":"Kasé de Plougastel"},{"parrain":"Gaston","filleul":"Kick-Ass"},{"parrain":"Hippodium","filleul":"Vénus"},{"parrain":"Hippodium","filleul":"Mistinguett"},{"parrain":"Boostiflor","filleul":"Kasé de Plougastel"},{"parrain":"Boostiflor","filleul":"Le Roi Merlin"},{"parrain":"Boostiflor","filleul":"Antigone"},{"parrain":"Quintal","filleul":"Ulysse"},{"parrain":"Sensei","filleul":"Frontal"},{"parrain":"Sensei","filleul":"Musashi"},{"parrain":"Sensei","filleul":"Mistinguett"},{"parrain":"Nostradamus","filleul":"Spartacus"},{"parrain":"Nostradamus","filleul":"Maestro"},{"parrain":"Nostradamus","filleul":"Astus du Brindacier"},{"parrain":"Nostradamus","filleul":"Bolus"},{"parrain":"Nostradamus","filleul":"Le Byzantin"},{"parrain":"L'Ingénue (Julia)","filleul":"Spartacus"},{"parrain":"Mata Hari","filleul":"Marilyn"},{"parrain":"Mata Hari","filleul":"L'Utopic"},{"parrain":"Morpheus","filleul":"Stimulus"},{"parrain":"Morpheus","filleul":"Maximus dit le Truand"},{"parrain":"Morpheus","filleul":"Astus du Brindacier"},{"parrain":"Al Capone 2.0","filleul":"Musashi"},{"parrain":"Gosby La Badouille","filleul":"Le Roi Merlin"},{"parrain":"Gosby La Badouille","filleul":"Lancelot"},{"parrain":"Vénus","filleul":"Stimulus"},{"parrain":"Bagheera","filleul":"Apollo dit le Bon"},{"parrain":"JeanJacqueur de Lion","filleul":"Frère Tcheese"},{"parrain":"JeanJacqueur de Lion","filleul":"Michelangelo"},{"parrain":"Frontal","filleul":"Tony Tony Chopper"},{"parrain":"Frontal","filleul":"Gargamelle dite la Brute"},{"parrain":"Frontal","filleul":"Chaplin"},{"parrain":"Ponyo","filleul":"Frère Tcheese"},{"parrain":"Ponyo","filleul":"Apollo dit le Bon"},{"parrain":"Ponyo","filleul":"Bolus"},{"parrain":"Goudurix","filleul":"Frère Rackam la Joie"},{"parrain":"Goudurix","filleul":"Antigone"},{"parrain":"Goudurix","filleul":"Le Byzantin"},{"parrain":"Goudurix","filleul":"Simba"},{"parrain":"Kasé de Plougastel","filleul":"Frère Rackam la Joie"},{"parrain":"Ulysse","filleul":"Michelangelo"},{"parrain":"Ulysse","filleul":"Jean Pierrot de la Cuisse"},{"parrain":"Spartacus","filleul":"Maximus dit le Truand"},{"parrain":"Marilyn","filleul":"L'Oxymore"},{"parrain":"Marilyn","filleul":"Petit Jean du Grand Gousier"},{"parrain":"Musashi","filleul":"Chihiro"},{"parrain":"Musashi","filleul":"Forest"},{"parrain":"Stimulus","filleul":"Tempête"},{"parrain":"Stimulus","filleul":"Laddy Hopps"},{"parrain":"Stimulus","filleul":"Achille le Saltimbanque"},{"parrain":"Stimulus","filleul":"Lotus"},{"parrain":"Kick-Ass","filleul":"Chaplin"},{"parrain":"Maestro","filleul":"Scandale (Bichat)"},{"parrain":"Maestro","filleul":"Capitaine Jack"},{"parrain":"Frère Tcheese","filleul":"Maitre Renard"},{"parrain":"Frère Tcheese","filleul":"Micromégas"},{"parrain":"Frère Tcheese","filleul":"Dr Holmes"},{"parrain":"Mistinguett","filleul":"Molière dit le Philanthrope"},{"parrain":"Mistinguett","filleul":"L'Utopic"},{"parrain":"Mistinguett","filleul":"Scandale (Bichat)"},{"parrain":"Mistinguett","filleul":"Maitre Renard"},{"parrain":"Antigone","filleul":"Lucrèce"},{"parrain":"Jean Pierrot de la Cuisse","filleul":"Laddy Hopps"},{"parrain":"Jean Pierrot de la Cuisse","filleul":"Melody"},{"parrain":"Gargamelle dite la Brute","filleul":"Kiddo"},{"parrain":"Gargamelle dite la Brute","filleul":"Melody"},{"parrain":"Maximus dit le Truand","filleul":"Lotus"},{"parrain":"Maximus dit le Truand","filleul":"Capitaine Jack"},{"parrain":"Apollo dit le Bon","filleul":"Achille le Saltimbanque"},{"parrain":"Apollo dit le Bon","filleul":"Fantasia"},{"parrain":"Apollo dit le Bon","filleul":"Molière dit le Philanthrope"},{"parrain":"L'Oxymore","filleul":"Lucrèce"},{"parrain":"Chaplin","filleul":"Lancelot"},{"parrain":"Chaplin","filleul":"Tempête"},{"parrain":"Astus du Brindacier","filleul":"Simba"},{"parrain":"Astus du Brindacier","filleul":"Dr Holmes"},{"parrain":"Astus du Brindacier","filleul":"Forest"},{"parrain":"Bolus","filleul":"Fantomette"},{"parrain":"Bolus","filleul":"Chihiro"},{"parrain":"L'Utopic","filleul":"Micromégas"},{"parrain":"L'Utopic","filleul":"Nyx"},{"parrain":"Petit Jean du Grand Gousier","filleul":"Cléopatre"},{"parrain":"Petit Jean du Grand Gousier","filleul":"Dexter"},{"parrain":"Tony Tony Chopper","filleul":"Hercule"},{"parrain":"Simba","filleul":"Nyx"},{"parrain":"Simba","filleul":"Fantomette"},{"parrain":"Dr Holmes","filleul":"Armstrong"},{"parrain":"Dr Holmes","filleul":"Hercule"},{"parrain":"Forest","filleul":"Django"},{"parrain":"Forest","filleul":"Fantasia"},{"parrain":"Forest","filleul":"Cléopatre"},{"parrain":"Forest","filleul":"Dexter"},{"parrain":"Melody","filleul":"Matoaka, intronisée La Louve"},{"parrain":"Melody","filleul":"Django"},{"parrain":"Achille le Saltimbanque","filleul":"Billy Jones l'Exalté"},{"parrain":"Maitre Renard","filleul":"Armstrong"},{"parrain":"Lancelot","filleul":"Pendragon"},{"parrain":"Capitaine Jack","filleul":"Frère Luron"},{"parrain":"Micromégas","filleul":"Nimbus"},{"parrain":"Tempête","filleul":"Bès le Furieux"},{"parrain":"Tempête","filleul":"Frère Luron"},{"parrain":"Fantomette","filleul":"Nimbus"},{"parrain":"Fantasia","filleul":"Pendragon"},{"parrain":"Fantasia","filleul":"Bès le Furieux"},{"parrain":"Armstrong","filleul":"Kiddo"},{"parrain":"Skippy (Lyon)","filleul":"Tonktonk"},{"parrain":"Guronzan","filleul":"Brindille"},{"parrain":"Greg","filleul":"Ibu"},{"parrain":"Rollerman","filleul":"Gollum"},{"parrain":"Manue","filleul":"KKTwist"},{"parrain":"Chagasse","filleul":"Bonnet M (Bichat)"},{"parrain":"Tutu (PO)","filleul":"Tonktonk"}]}</script>
+
+<script>
+(function(){
+  "use strict";
+  const raw = JSON.parse(document.getElementById('data').textContent);
+
+  // ---- modèle ----
+  const byName = new Map();
+  raw.personnes.forEach(p=>{ if(!byName.has(p.nom)) byName.set(p.nom,{id:p.nom,gen0:p.gen}); });
+  raw.liens.forEach(l=>{ [l.parrain,l.filleul].forEach(n=>{ if(!byName.has(n)) byName.set(n,{id:n}); }); });
+  const nodes = [...byName.values()];
+  const parents = new Map(), children = new Map();
+  nodes.forEach(n=>{parents.set(n.id,[]);children.set(n.id,[]);});
+  const links = raw.liens.map(l=>{
+    children.get(l.parrain).push(l.filleul);
+    parents.get(l.filleul).push(l.parrain);
+    return {source:l.parrain, target:l.filleul};
+  });
+
+  // out-degree -> taille ; longest path depuis racines -> génération (gestion des cycles)
+  nodes.forEach(n=>{ n.deg = children.get(n.id).length; });
+  const gen = new Map(), state0 = new Map();
+  function genOf(id){
+    if(gen.has(id)) return gen.get(id);
+    if(state0.get(id)===1) return 0;           // cycle : on coupe
+    state0.set(id,1);
+    let g=0;
+    for(const p of parents.get(id)) g=Math.max(g, genOf(p)+1);
+    state0.set(id,2); gen.set(id,g); return g;
+  }
+  nodes.forEach(n=> n.gen = genOf(n.id));
+  const maxGen = d3.max(nodes,d=>d.gen);
+
+  document.getElementById('stat-n').textContent = nodes.length;
+  document.getElementById('stat-e').textContent = links.length;
+  document.getElementById('stat-g').textContent = maxGen+1;
+
+  // datalist
+  const dl = document.getElementById('names');
+  nodes.map(n=>n.id).sort((a,b)=>a.localeCompare(b,'fr')).forEach(id=>{
+    const o=document.createElement('option'); o.value=id; dl.appendChild(o);
+  });
+
+  // ---- couleurs ----
+  const genColor = d3.scaleSequential().domain([0,Math.max(1,maxGen)])
+    .interpolator(d3.interpolateRgbBasis(['#7fb3d5','#76d7c4','#7dcea0','#f2d06b','#e59866','#cf6f4e','#a3232f']));
+  const C = {sel:'#e7c15a', up:'#cf3b40', down:'#19a78e', dim:'#4a4150', dimLink:'rgba(120,108,132,.10)'};
+
+  function renderLegend(){
+    const L = document.getElementById('legend');
+    if(colorMode==='gen'){
+      let s='<div style="margin-bottom:4px;font-weight:600;color:var(--ink)">Génération (du plus ancien au plus récent)</div>';
+      for(let g=0;g<=maxGen;g+=Math.ceil((maxGen+1)/6)) s+=`<span class="sw" style="background:${genColor(g)}"></span>G${g} &nbsp;`;
+      s+='<div style="margin-top:6px">Taille du nœud = nombre de filleul·e·s.</div>';
+      L.innerHTML=s;
+    } else {
+      L.innerHTML =
+        `<span class="sw" style="background:${C.sel}"></span>personne sélectionnée<br>`+
+        `<span class="sw" style="background:${C.up}"></span>parrains / marraines (remontée)<br>`+
+        `<span class="sw" style="background:${C.down}"></span>filleul·e·s (descente)`;
+    }
+  }
+
+  // ---- simulation ----
+  const sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d=>d.id).distance(34).strength(.32))
+    .force('charge', d3.forceManyBody().strength(-46).distanceMax(360))
+    .force('center', d3.forceCenter(0,0))
+    .force('collide', d3.forceCollide().radius(d=>radius(d)+1.5))
+    .alpha(1).alphaDecay(.022);
+
+  function radius(d){ return 3 + Math.sqrt(d.deg)*1.7; }
+
+  // ---- canvas ----
+  const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+  const main = cv.parentElement;
+  let W=0,H=0,dpr=Math.min(2,window.devicePixelRatio||1);
+  let transform = d3.zoomIdentity;
+  function resize(){
+    W=main.clientWidth; H=main.clientHeight;
+    cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+    draw();
+  }
+  window.addEventListener('resize', resize);
+
+  // état focus
+  let focusId=null, depth=2, colorMode='gen';
+  let upSet=new Set(), downSet=new Set(), shown=null; // shown=null -> tout
+
+  function computeFocus(){
+    upSet=new Set(); downSet=new Set();
+    if(!focusId){ shown=null; return; }
+    // remontée (parrains)
+    let layer=new Set([focusId]);
+    for(let d=0; d<depth; d++){
+      const next=new Set();
+      layer.forEach(id=> parents.get(id).forEach(p=>{ if(p!==focusId && !upSet.has(p)){upSet.add(p); next.add(p);} }));
+      layer=next; if(!layer.size) break;
+    }
+    // descente (filleul·e·s)
+    layer=new Set([focusId]);
+    for(let d=0; d<depth; d++){
+      const next=new Set();
+      layer.forEach(id=> children.get(id).forEach(c=>{ if(c!==focusId && !downSet.has(c)){downSet.add(c); next.add(c);} }));
+      layer=next; if(!layer.size) break;
+    }
+    shown=new Set([focusId,...upSet,...downSet]);
+  }
+
+  function nodeColor(d){
+    if(focusId){
+      if(d.id===focusId) return C.sel;
+      if(upSet.has(d.id)) return C.up;
+      if(downSet.has(d.id)) return C.down;
+      return C.dim;
+    }
+    return colorMode==='lineage' ? C.dim : genColor(d.gen);
+  }
+  function inFocus(id){ return !shown || shown.has(id); }
+
+  function draw(){
+    ctx.save();
+    ctx.clearRect(0,0,cv.width,cv.height);
+    ctx.scale(dpr,dpr);
+    ctx.translate(W/2,H/2);
+    ctx.translate(transform.x,transform.y);
+    ctx.scale(transform.k,transform.k);
+
+    // liens
+    ctx.lineWidth=.7;
+    for(const l of links){
+      const lit = focusId ? (shown.has(l.source.id)&&shown.has(l.target.id)) : true;
+      ctx.strokeStyle = lit ? (focusId?'rgba(207,59,64,.30)':'rgba(150,135,120,.20)') : C.dimLink;
+      ctx.beginPath();
+      ctx.moveTo(l.source.x,l.source.y);
+      ctx.lineTo(l.target.x,l.target.y);
+      ctx.stroke();
+    }
+    // nœuds
+    for(const n of nodes){
+      const lit=inFocus(n.id), r=radius(n);
+      ctx.globalAlpha = lit?1:.5;
+      ctx.beginPath(); ctx.arc(n.x,n.y,r,0,6.283);
+      ctx.fillStyle=nodeColor(n); ctx.fill();
+      if(n.id===focusId){ ctx.lineWidth=2.4; ctx.strokeStyle='#fff'; ctx.stroke(); }
+      ctx.globalAlpha=1;
+    }
+    // étiquettes : focus -> sous-graphe ; sinon -> gros hubs + survol
+    ctx.font='600 11px Inter, sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    const labelIds = focusId ? shown : new Set(nodes.filter(n=>n.deg>=6).map(n=>n.id));
+    if(transform.k>1.6 && !focusId) nodes.forEach(n=>labelIds.add(n.id)); // zoom : on montre tout
+    for(const n of nodes){
+      if(!labelIds.has(n.id)) continue;
+      const r=radius(n);
+      ctx.fillStyle='rgba(23,18,26,.78)';
+      const w=ctx.measureText(n.id).width;
+      ctx.fillRect(n.x-w/2-3, n.y+r+2, w+6, 13);
+      ctx.fillStyle='#f4efe6'; ctx.fillText(n.id, n.x, n.y+r+9);
+    }
+    if(hover){
+      const r=radius(hover);
+      ctx.beginPath(); ctx.arc(hover.x,hover.y,r+3,0,6.283);
+      ctx.lineWidth=2; ctx.strokeStyle=C.gold; ctx.stroke();
+    }
+    ctx.restore();
+  }
+  sim.on('tick', draw);
+
+  // ---- interactions ----
+  function toGraph(ev){
+    const rect=cv.getBoundingClientRect();
+    const px=ev.clientX-rect.left, py=ev.clientY-rect.top;
+    return {x:(px-W/2-transform.x)/transform.k, y:(py-H/2-transform.y)/transform.k};
+  }
+  let hover=null;
+  const tip=document.getElementById('tip');
+  cv.addEventListener('mousemove',ev=>{
+    const p=toGraph(ev);
+    const n=sim.find(p.x,p.y,18);
+    hover=n||null;
+    if(n){
+      tip.style.opacity=1;
+      tip.style.left=(ev.clientX-main.getBoundingClientRect().left+14)+'px';
+      tip.style.top=(ev.clientY-main.getBoundingClientRect().top+14)+'px';
+      tip.innerHTML=`<b>${esc(n.id)}</b><div class="meta">Génération ${n.gen} · ${parents.get(n.id).length} parrain(s) · ${n.deg} filleul·e·s</div>`;
+    } else { tip.style.opacity=0; }
+    draw();
+  });
+  cv.addEventListener('mouseleave',()=>{hover=null;tip.style.opacity=0;draw();});
+
+  const zoom=d3.zoom().scaleExtent([.15,6]).on('zoom',ev=>{
+    // ne pas capter le drag de nœud
+    if(ev.sourceEvent && ev.sourceEvent.type==='mousemove' && dragging) return;
+    transform=ev.transform; draw();
+  });
+  d3.select(cv).call(zoom).on('dblclick.zoom',null);
+
+  // drag de nœud
+  let dragging=null;
+  d3.select(cv).call(d3.drag()
+    .container(cv)
+    .subject(ev=>{ const p=toGraph(ev); return sim.find(p.x,p.y,18); })
+    .on('start',ev=>{ if(!ev.subject)return; dragging=ev.subject; cv.classList.add('grabbing'); sim.alphaTarget(.25).restart(); ev.subject.fx=ev.subject.x; ev.subject.fy=ev.subject.y; })
+    .on('drag',ev=>{ if(!dragging)return; const p=toGraph(ev); dragging.fx=p.x; dragging.fy=p.y; })
+    .on('end',ev=>{ if(!dragging)return; cv.classList.remove('grabbing'); sim.alphaTarget(0); dragging=null; })
+  );
+
+  cv.addEventListener('click',ev=>{
+    if(justDragged){justDragged=false;return;}
+    const p=toGraph(ev); const n=sim.find(p.x,p.y,18);
+    setFocus(n?n.id:null);
+  });
+  let justDragged=false;
+  d3.select(cv).on('mousedown.flag',()=>{justDragged=false;});
+  // marque un vrai drag pour ne pas déclencher le focus au relâché
+  let downAt=null;
+  cv.addEventListener('mousedown',ev=>downAt={x:ev.clientX,y:ev.clientY});
+  cv.addEventListener('mouseup',ev=>{ if(downAt && Math.hypot(ev.clientX-downAt.x,ev.clientY-downAt.y)>4) justDragged=true; });
+
+  // ---- focus + panneau ----
+  function setFocus(id){
+    focusId = id && byName.has(id) ? id : null;
+    computeFocus(); renderFocusBox(); draw();
+  }
+  function chip(id){ return `<span class="chip" data-go="${esc(id)}">${esc(id)}</span>`; }
+  function renderFocusBox(){
+    const box=document.getElementById('focusbox');
+    if(!focusId){
+      box.innerHTML='<div class="ph">Clique sur un nœud (ou cherche un nom) pour isoler sa lignée : parrains au-dessus, filleul·e·s en dessous.</div>';
+      return;
+    }
+    const ps=parents.get(focusId), cs=children.get(focusId);
+    box.innerHTML =
+      `<h2>${esc(focusId)}</h2>`+
+      `<div class="lineage">`+
+        `<div class="row"><span class="tag up">Parrains</span><span>${ps.length||'—'}</span></div>`+
+        (ps.length?`<div class="chips">${ps.map(chip).join('')}</div>`:'')+
+        `<div class="row" style="margin-top:6px"><span class="tag down">Filleul·e·s</span><span>${cs.length||'—'}</span></div>`+
+        (cs.length?`<div class="chips">${cs.map(chip).join('')}</div>`:'')+
+        `<div class="row" style="margin-top:8px"><span class="tag">Lignée visible</span><span>${shown.size} pers. · ${depth} gén.</span></div>`+
+      `</div>`;
+    box.querySelectorAll('[data-go]').forEach(el=>el.addEventListener('click',()=>{ const id=el.getAttribute('data-go'); document.getElementById('search').value=id; setFocus(id); centerOn(id); }));
+  }
+
+  function centerOn(id){
+    const n=byName.get(id); if(!n||n.x==null)return;
+    const k=Math.max(transform.k,1.3);
+    transform=d3.zoomIdentity.scale(k).translate(-n.x,-n.y);
+    d3.select(cv).call(zoom.transform, d3.zoomIdentity.translate(-n.x*k,-n.y*k).scale(k));
+    draw();
+  }
+
+  // ---- contrôles ----
+  document.getElementById('search').addEventListener('change',e=>{
+    const v=e.target.value.trim();
+    if(byName.has(v)){ setFocus(v); centerOn(v); } else if(!v){ setFocus(null); }
+  });
+  const depthSlider=document.getElementById('depth'), depthVal=document.getElementById('depth-val');
+  depthSlider.addEventListener('input',e=>{ depth=+e.target.value; depthVal.textContent=depth+' gén.'; computeFocus(); renderFocusBox(); draw(); });
+
+  document.querySelectorAll('#colormode button').forEach(b=>b.addEventListener('click',()=>{
+    colorMode=b.dataset.mode;
+    document.querySelectorAll('#colormode button').forEach(x=>x.setAttribute('aria-pressed', x===b));
+    renderLegend(); draw();
+  }));
+
+  document.getElementById('reset').addEventListener('click',()=>{
+    document.getElementById('search').value=''; setFocus(null); fit();
+  });
+  document.getElementById('zin').onclick =()=>d3.select(cv).transition().call(zoom.scaleBy,1.4);
+  document.getElementById('zout').onclick=()=>d3.select(cv).transition().call(zoom.scaleBy,1/1.4);
+  document.getElementById('zfit').onclick=fit;
+
+  function fit(){
+    const xs=nodes.map(n=>n.x), ys=nodes.map(n=>n.y);
+    const minx=Math.min(...xs),maxx=Math.max(...xs),miny=Math.min(...ys),maxy=Math.max(...ys);
+    const gw=maxx-minx||1, gh=maxy-miny||1;
+    const k=Math.min(.9*W/gw, .9*H/gh, 2);
+    const cx=(minx+maxx)/2, cy=(miny+maxy)/2;
+    d3.select(cv).transition().duration(400).call(zoom.transform, d3.zoomIdentity.scale(k).translate(-cx,-cy));
+  }
+
+  // burger mobile
+  document.getElementById('burger').onclick=()=>document.getElementById('panel').classList.toggle('open');
+
+  function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+  renderLegend();
+  resize();
+  // recadrage initial quand la simu s'est posée
+  sim.on('end',()=>{});
+  setTimeout(fit, 900);
+})();
+</script>
+</body>
+</html>

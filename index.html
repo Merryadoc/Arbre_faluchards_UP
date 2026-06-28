@@ -134,9 +134,9 @@
 <div class="sub">Faculté de médecine · UP</div>
 </div>
 <div class="stats">
-<div><b id="stat-n">708</b>faluchard·e·s</div>
-<div><b id="stat-e">1319</b>parrainages</div>
-<div><b id="stat-g">26</b>générations</div>
+<div><b id="stat-n">708</b>Faluchard·e·s</div>
+<div><b id="stat-e">1319</b>Parrainages</div>
+<div><b id="stat-g">26</b>Générations</div>
 </div>
 <div class="field">
 <label for="search">Chercher quelqu'un</label>
@@ -146,23 +146,20 @@
 <div class="field">
 <label for="depth">Profondeur du focus</label>
 <div class="depth">
-<input id="depth" max="15" min="1" step="1" type="range" value="2"/>
+<input id="depth" max="30" min="1" step="1" type="range" value="2"/>
 <span class="val" id="depth-val">2 gén.</span>
 </div>
 </div>
 <div class="field">
 <label>Couleur des nœuds</label>
 <div class="seg" id="colormode">
-<button aria-pressed="true" data-mode="gen">Génération</button>
-<button aria-pressed="false" data-mode="lineage">Lignée (focus)</button>
 </div>
 </div>
 <div class="focusbox" id="focusbox">
-<div class="ph">Clique sur un nœud (ou cherche un nom) pour isoler sa lignée : parrains au-dessus, filleul·e·s en dessous.</div>
+<div class="ph">Clique sur un nœud ou cherche un nom pour isoler sa lignée.</div>
 </div>
 <div class="legend" id="legend"></div>
 <button class="btn" id="reset">Tout réafficher</button>
-<div class="hint">Molette : zoom · glisser le fond : déplacer · glisser un nœud : le fixer. Les données sont éditables en haut du fichier <code>.html</code> (bloc <code>id="data"</code>).</div>
 </aside>
 <main>
 <button aria-label="Menu" id="burger">☰</button>
@@ -194,7 +191,7 @@
   /* ══════════════════════════════════════════════════════════════════
      MOT DE PASSE — pour le changer, modifie UNIQUEMENT la ligne ci-dessous.
      ══════════════════════════════════════════════════════════════════ */
-  const MOT_DE_PASSE = "Arbre_faluche_UP";
+  const MOT_DE_PASSE = "A";
 
   (function porte(){
     const gate=document.getElementById('gate');
@@ -272,18 +269,18 @@
       const downBar = `linear-gradient(90deg, ${downRamp(0)}, ${downRamp(1)})`;
       L.innerHTML =
         `<div style="margin-bottom:4px;font-weight:600;color:var(--ink)">Lignée de ${esc(focusId)}</div>`+
-        `<span class="sw" style="background:${C.sel}"></span>personne sélectionnée<br>`+
-        `<span class="sw" style="background:${upBar};width:34px;border-radius:3px"></span> parrains (rouge) — foncé = proche, clair = loin<br>`+
-        `<span class="sw" style="background:${downBar};width:34px;border-radius:3px"></span> filleul·e·s (bleu) — foncé = proche, clair = loin`;
+        `<span class="sw" style="background:${C.sel}"></span>Personne sélectionnée<br>`+
+        `<span class="sw" style="background:${upBar};width:34px;border-radius:3px"></span> PM<br>`+
+        `<span class="sw" style="background:${downBar};width:34px;border-radius:3px"></span> Fillots`;
       return;
     }
     if(colorMode==='gen'){
       let s='<div style="margin-bottom:4px;font-weight:600;color:var(--ink)">Génération (du plus ancien au plus récent)</div>';
       for(let g=0;g<=maxGen;g+=Math.ceil((maxGen+1)/6)) s+=`<span class="sw" style="background:${genColor(g)}"></span>G${g} &nbsp;`;
-      s+='<div style="margin-top:6px">Taille du nœud = nombre de filleul·e·s. Clique sur quelqu\'un pour voir sa lignée.</div>';
+      s+='<div style="margin-top:6px">Taille du nœud = nombre de fillots.</div>';
       L.innerHTML=s;
     } else {
-      L.innerHTML = `<div>Clique sur un nœud pour afficher sa lignée en dégradé : parrains en rouge, filleul·e·s en bleu.</div>`;
+      L.innerHTML = `<div>Clique sur un nœud pour afficher sa lignée : PM en rouge, fillots en bleu.</div>`;
     }
   }
   // ---- positions initiales aléatoires ----
@@ -458,16 +455,16 @@
   function renderFocusBox(){
     const box=document.getElementById('focusbox');
     if(!focusId){
-      box.innerHTML='<div class="ph">Clique sur un nœud (ou cherche un nom) pour isoler sa lignée : parrains au-dessus, filleul·e·s en dessous.</div>';
+      box.innerHTML='<div class="ph">Clique sur un nœud ou cherche un nom pour isoler sa lignée.</div>';
       return;
     }
     const ps=parents.get(focusId), cs=children.get(focusId);
     box.innerHTML =
       `<h2>${esc(focusId)}</h2>`+
       `<div class="lineage">`+
-        `<div class="row"><span class="tag up">Parrains</span><span>${ps.length||'—'}</span></div>`+
+        `<div class="row"><span class="tag up">PM</span></div>`+
         (ps.length?`<div class="chips">${ps.map(chip).join('')}</div>`:'')+
-        `<div class="row" style="margin-top:6px"><span class="tag down">Filleul·e·s</span><span>${cs.length||'—'}</span></div>`+
+        `<div class="row" style="margin-top:6px"><span class="tag down">Fillots</span><span>${cs.length||'—'}</span></div>`+
         (cs.length?`<div class="chips">${cs.map(chip).join('')}</div>`:'')+
         `<div class="row" style="margin-top:8px"><span class="tag">Lignée visible</span><span>${shown.size} pers. · ${depth} gén.</span></div>`+
       `</div>`;
